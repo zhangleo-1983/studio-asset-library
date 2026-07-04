@@ -1,0 +1,12 @@
+# 本地工具配置,不入库
+.claude/settings.local.json
+
+# 系统
+.DS_Store
+
+# Python(评审通过、开始写代码后生效)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
