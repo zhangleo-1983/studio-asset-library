@@ -1,6 +1,6 @@
 # balloon-platform 旧资产迁移清单
 
-> 状态:**设计草案,待技术合伙人评审**。
+> 状态:**R01 返修稿(v2),待二审**。按评审 C7/A-2/A-3/Q2/Q4 与裁决一(方案 A)返修;每处修改标注清单编号。
 > 来源:旧项目 `balloon-tagging-eval`(已退役为资产库,不再开发)。
 > 原则:迁移只搬**已验证的资产与结论**,不搬旧项目的临时脚本与一次性 run 产物。目标结构见 [data-model.md](./data-model.md)。
 
@@ -18,6 +18,7 @@
 
 - **来源:** `prompts/tagging.txt`(四维:主题/配色/造型/场景 + suggested_filename/confidence/needs_review/notes)。
 - **动作:** 原文迁入新仓库 `prompts/tagging_v2.txt`,登记 `prompt_version = 'tagging_v2'`。提示词里 `{{COLOR_VOCAB}}` / `{{STRUCTURE_VOCAB}}` 占位符改为**从 `vocabulary` 表按当前版本注入**(旧项目从 YAML 注入,新平台从库注入),注入所用的 `vocab_version_id` 写进标签溯源。【不变量二】
+- **【Q2】提示词内容锚 + 命名纪律:** 提示词文件**按版本号命名、只增不改**——改内容即升版本号(`tagging_v2` → `tagging_v3`),不允许同名文件覆盖修改。同时 `config_version` 记录该 prompt 本体的 `prompt_sha256`(见 data-model §3.7),标签经 `config_version_id` 锚到确切的提示词内容,杜绝"同版本号下内容漂移导致溯源失真"。
 - **判分裁判提示词** `prompts/judge_theme.txt`(theme 语义等价裁判)属评测期工具,**本期不迁入生产路径**,归档到 roadmap 的"评测能力"阶段。
 
 ### 1.2 structure / colors 词表 → `vocabulary` 表
@@ -31,10 +32,60 @@
 - 多语言:`labels` 本期只填 `zh`,结构留位 `en` 等。【不变量三 — 留位不实现】
 - scene 枚举(`生日宴/寿宴/宝宝宴/商场美陈/校园活动/开业/婚礼/其他`)旧项目写死在 schema+prompt,新平台**也迁成 `vocabulary` dimension=scene**,消除旧项目"scene 改词表要动两个地方"的痛点(见旧 sync_corrections 对 scene 的特殊处理)。
 
-### 1.3 alias_map → `alias_map` 表
+#### 【A-3 · 提案待批】concept_key 命名(color 17 条 + scene 8 条)
+
+按裁决一方案 A,`tag.value` 存 concept_key,故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。以下为 Code 提案,随返修稿上交确认。命名原则:小写英文、复合色用下划线、语义直译、避免歧义。
+
+**structure(3 条,已在上表):**
+
+| zh 词形 | concept_key |
+|---|---|
+| 立柱 | `column` |
+| 拱门 | `arch` |
+| 花盒 | `flowerbox` |
+
+**color(17 条 = 10 单色 + 7 复合色):**
+
+| zh 词形 | concept_key | color_kind |
+|---|---|---|
+| 粉 | `pink` | simple |
+| 白 | `white` | simple |
+| 红 | `red` | simple |
+| 蓝 | `blue` | simple |
+| 绿 | `green` | simple |
+| 黄 | `yellow` | simple |
+| 紫 | `purple` | simple |
+| 黑 | `black` | simple |
+| 银 | `silver` | simple |
+| 金 | `gold` | simple |
+| 多巴胺 | `dopamine` | compound |
+| 珠光白 | `pearl_white` | compound |
+| 珠光粉 | `pearl_pink` | compound |
+| 铬玫瑰金 | `chrome_rose_gold` | compound |
+| 铬香槟金 | `chrome_champagne_gold` | compound |
+| 木瓜黄 | `papaya_yellow` | compound |
+| 铬金 | `chrome_gold` | compound |
+
+**scene(8 条):**
+
+| zh 词形 | concept_key |
+|---|---|
+| 生日宴 | `birthday` |
+| 寿宴 | `longevity_feast` |
+| 宝宝宴 | `baby_shower` |
+| 商场美陈 | `mall_display` |
+| 校园活动 | `campus_event` |
+| 开业 | `opening` |
+| 婚礼 | `wedding` |
+| 其他 | `other` |
+
+> 说明:concept_key 一经确认即冻结,后续改中文词形("立柱"→"圆柱")只改 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。theme 维不入此表(自由文本,无 concept_key)。【A-3 提案待批】
+
+### 1.3 alias_map → `alias_map` 表 【A-2】
 
 - **来源:** `data/vocab/alias_map.yaml`,按字段分区(structure/theme/color/scene),已有一条 `structure: 气球花盒 → 花盒`。
-- **动作:** 逐条迁入 `alias_map` 表,`source='human'`(存量视为人工维护)。冲突/成环校验规则(旧 `apply_alias` 的拒绝逻辑)在新平台的回流写入路径里保留。【见 §2.2】
+- **动作【A-2】:** 逐条迁入 `alias_map` 表,但 `standard_value` 语义改为**指向 concept_key**(不再是中文标准词形)。例:旧 `气球花盒 → 花盒` 迁为 **`alias='气球花盒', concept_key='flowerbox'`**。`source='human'`(存量视为人工维护)。
+- 归一化解析链(模型中文词形 → alias_map/labels.zh 反查 → concept_key 落库)与 labels.zh 唯一约束见 data-model §3.4【A-4】。冲突/成环校验规则(旧 `apply_alias` 的拒绝逻辑)在新平台的回流写入路径里保留。【见 §2.2】
 
 ### 1.4 生产配置(评测锁定)→ `config_version`
 
@@ -53,6 +104,8 @@
   "note": "锁定于 2026-07-03:83 张全量评测 structure 判错率 3.6%,优于 gemini 4.8% 且更快更省;few-shot 三轮实验判错率反涨至 10.8–13.3% 已关闭"
 }
 ```
+
+其中 `config_version` 行同时写入 `prompt_version='tagging_v2'` 与该提示词本体的 `prompt_sha256`【Q2】,作为标签"在什么规则下打的"的内容锚。
 
 - **硬约束(迁移纪律):** few-shot 保持关闭。旧项目 `CLAUDE.md` 明确"不要为了试试看重开 few-shot",重开需先满足 `prompts/fewshot/README.md` 的重开条件。新平台默认无 few-shot。
 - Gemini 配置仅作"能力上限对照"留档,不进生产 `config_version`。
@@ -90,7 +143,7 @@
 | `diff_item` 四字段分类:RENAMED / ADDED / REMOVED / 人工补漏 | **算法不变**,逐字段比对当前值集合 vs 原始值集合 |
 | RENAMED(1:1 且新值在词表内)→ 建议进 alias_map | 不变;写入走 `alias_map` 表 |
 | ADDED(新值不在词表)→ 建议扩 vocab | 不变;写入生成新 `vocabulary_version` |
-| REMOVED(删除无替代)→ 写 `error_cases`(SQLite) | 改为落 `event`(event_type='correction' 的子类)+ 可选一张 `error_case` 视图,不再单建 SQLite |
+| REMOVED(删除无替代)→ 写 `error_cases`(SQLite) | 【C1 对齐】REMOVED 直接读 `tag.status='removed'`(对应 `tag_correction.kind='remove'`),落 `event`(event_type='correction' 子类)+ 可选 `error_case` 视图,不再单建 SQLite;删标不销毁原值,回流可稳定复现分类 |
 | 两阶段:扫描只读产 CSV → `--apply` 写规则 | **两阶段人工闸门保留**;apply 落"配置变更"事件,取代旧 `applied_rules_log` |
 | `apply_alias` 冲突/成环拒绝自动写 | **保留**:冲突(别名已映射到不同标准值)/ 成环(A→B→A)拒绝,交人工裁决 |
 | scene 需人工改 schema+prompt | 消解:scene 迁成 `vocabulary`,回流可正常扩表 |
@@ -130,21 +183,23 @@ NAS 扫描 ──→ 内容 hash(sha256) ──→ 去重判定 ──→ 上传
 - 去重键 = `sha256(文件字节)`,**不依赖文件名/路径**。【不变量三】
 - 大小写陷阱(旧 `CLAUDE.md` 第 3 条:macOS/Windows 大小写不敏感文件系统,`a.JPG` 与 `a.jpg` 是同一文件,曾静默覆盖丢 2 张):去重只按内容 hash,不按文件名;但**导出/落盘生成文件名时,判重要 `.lower()` 后再比**,该教训迁入导出模块。
 - 重复文件不丢弃信息:命中已存在 asset 时,把源路径/原名记入该 asset 的 `original_name` 或迁移清单,便于溯源"这张图在 NAS 哪几处出现过"。
-- 特殊格式:iPhone `.HEIC` 需 `pillow_heif` 解码(旧 `providers.py` 已引入);上云保留原图,另生成 JPEG 缩略图供小程序图墙。
+- 特殊格式:iPhone `.HEIC` 需 `pillow_heif` 解码(旧 `providers.py` 已引入);上云**保留原图**。**【Q4】缩略图收敛口径:** 默认**不预生成**,由 OSS 图片处理实时生成(见 architecture §2.3);**仅当**源格式 OSS 图片处理不支持(如个别 HEIC 变体)时,入库管线预生成一张 JPEG 缩略图并写 `asset.thumb_key`。即"仅不支持格式预生成",非全量预生成——消除与 architecture §2.3 的口径冲突。
 
-### 3.4 迁移期溯源标记
+### 3.4 迁移期溯源标记 【C3】
 
-- 存量图历史无打标,上云后统一入队用**当前生产配置**(qwen-vl-max / 无 few-shot / temperature=0)打标,标签溯源正常写全字段。
-- 若将来迁入"旧项目已打过的标签数据"(评测 run 产物),这批标签溯源字段不全,按 [data-model.md](./data-model.md) §6 裁决点 2 标 `source='migrated'`,与生产标签区分,溯源 NOT NULL 约束对其放宽。【不变量二】
+- 存量图历史无打标,上云后统一入队用**当前生产配置**(qwen-vl-max / 无 few-shot / temperature=0)打标,标签溯源正常写全字段(满足 data-model §3.5 的 `tag_provenance_by_source` CHECK)。
+- **【C3】不存在"溯源不全的迁移标签":** 旧项目评测 run 产物**明确不入生产库**(§2.3),存量图一律用生产配置**重新打标**、溯源写全。因此原设计的 `source='migrated'` 放宽条款**予以删除**——放宽对象根本不会入库。溯源关键列自第一天起由 CHECK 按 source 强制(model 来源六项齐全),不留可空口子。【不变量二】
 
 ---
 
 ## 4. 迁移执行顺序(评审通过后)
 
-1. 建库骨架 + 迁移 §1.2/§1.3/§1.4 词表·alias·配置(小、可先行、可校对)。
+- **步骤 0(种子数据,先于一切)【C7】:** 建库迁移脚本内固化 **`tenant_id=0`(平台公共库保留号)**;再种子写入**首个租户示例客户**(`tenant`)与**初始管理用户**(`app_user`,词表 `created_by` 引用它),各落一条 `event`。**必须先于步骤 1**——否则 `vocabulary.tenant_id` / `vocabulary_version.created_by` 的外键在第一步即报错(评审 C7 指出的依赖倒挂)。同一脚本内执行 **`REVOKE UPDATE, DELETE ON event`**【加固2】。
+1. 迁移 §1.2/§1.3/§1.4 词表·alias·配置(小、可先行、可校对)。
 2. 迁移 §1.1 提示词 + §1.5/§1.6 schema 与兜底函数,打通单张打标闭环。
 3. NAS 核数 → §3 存量图分批上云 + 去重入库。
 4. 存量图批量打标 → 复核队列 → 人工修正闭环。
 5. §2.2 修正回流(数据源改造)在有真实修正数据后接入。
 
+> **【加固3】** 骨架搭好即补一条集成测试:**无租户上下文的查询路径必须失败/被拒**,作为应用层 `tenant_id` 过滤方案的安全网(RLS 结构留位、本期不启用)。
 > 全部待评审通过后开始;本文仅为迁移设计,不含任何执行。

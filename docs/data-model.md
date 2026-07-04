@@ -1,8 +1,9 @@
 # balloon-platform 数据模型草案
 
-> 状态:**设计草案,待技术合伙人评审**。评审通过前不建表、不写迁移。
-> 宪法:[PRINCIPLES.md](../PRINCIPLES.md)。每张表逐条核对五个不变量,见 §2 的合规矩阵。
-> DDL 用 PostgreSQL 方言书写,仅表达结构意图,非最终迁移脚本。命名统一 snake_case,时间戳一律 `timestamptz`(UTC)。
+> 状态:**R01 返修稿(v2),待二审**。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
+> 本稿按《评审意见 v1》C1–C7/Q2–Q8/加固三条 与《裁决记录》裁决一(C2=方案A)、裁决二(Q1=主色 role)逐条返修;每处修改在文中标注清单编号(如【C1】【C2/A-1】)。
+> **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名提案见 [migration.md](./migration.md) §1.2【A-3】。
+> DDL 用 PostgreSQL 方言书写,表达结构意图,非最终迁移脚本。命名 snake_case,时间戳一律 `timestamptz`(UTC)。
 
 ---
 
@@ -12,19 +13,19 @@
 |---|---|---|
 | `tenant` | 租户 | 否 |
 | `app_user` | 用户(Web 用户名密码 / 小程序 openid),归属租户 | 否 |
-| `asset` | 资产元数据(图片),以 asset_id + 内容 hash 关联对象存储 | 否(可软删) |
+| `asset` | 资产元数据(图片),以 asset_id + 内容 hash 关联对象存储 | 否(软删) |
 | `task` | 通用任务表(task_type 开放),一次 AI 操作一行 | 否(状态可变) |
-| `tag` | 标签(每条带完整溯源 + 修正链头) | 否(修正走 tag_correction) |
-| `tag_correction` | 标签修正链(只增,人工修正不覆盖原值) | **是** |
-| `vocabulary` | 词表条目(structure/colors…),概念级、预留多语言 | 否 |
+| `tag` | 标签(带完整溯源 + status + role),value 存 concept_key | 否(改值/删标走 tag_correction) |
+| `tag_correction` | 标签修正链(只增,含 update/remove/restore) | **是** |
+| `vocabulary` | 词表条目(concept_key + labels 多语言留位) | 否 |
 | `vocabulary_version` | 词表版本(升级定位/批量重打的依据) | **是**(版本只增) |
-| `alias_map` | 输出归一化:别名 → 标准值,按字段分区 | 否 |
-| `config_version` | 打标/复核等配置的版本快照(溯源引用) | **是** |
+| `alias_map` | 输出归一化:别名词形 → concept_key,按维度分区 | 否 |
+| `config_version` | 打标/复核等配置版本快照(含 prompt 内容锚) | **是** |
 | `event` | 业务事件流水(唯一事件承重墙) | **是** |
-| `selection` / `selection_item` | 选图篮(小程序),选图/转发行为的载体 | 否 |
+| `selection` / `selection_item` | 选图篮(小程序) | 否 |
 | `export_job` | 数据导出任务记录 | 否 |
 
-> 运维日志(报错/延迟)**不在此**——走标准 logging,不入业务库。【不变量五】
+> 运维日志不在此——走标准 logging,不入业务库。【不变量五】
 
 ---
 
@@ -34,17 +35,19 @@
 |---|:--:|:--:|:--:|:--:|:--:|
 | tenant | 自身即租户 | — | — | — | — |
 | app_user | ✅ | — | — | — | — |
-| asset | ✅ | 上传溯源(uploader/hash/time) | ✅ 以 asset_id+hash 关联存储 | — | 上传落 event |
-| task | ✅ | run_id/config_version/token/model | 引用 asset_id 非路径 | ✅ task_type 普通列 | 完成落 event |
-| tag | ✅ | ✅ 全字段(见 §3.5) | ✅ 挂 asset_id | 由 task 承载类型 | 修正落 event |
-| tag_correction | ✅ | ✅ source/corrected_by/at/原值 | ✅ | — | 每条修正落 event |
+| asset | ✅ | 上传溯源 | ✅ asset_id+hash 关联存储 | — | 上传落 event |
+| task | ✅ | run_id/config/token/model | 引用 asset_id 非路径 | ✅ task_type 普通列 | 完成落 event |
+| tag | ✅ | ✅ 全字段(§3.5) | ✅ 挂 asset_id | 由 task 承载类型 | 修正落 event |
+| tag_correction | ✅ | ✅ kind/原值保留/who/when | ✅ | — | 每条修正落 event |
 | vocabulary | ✅ | 版本号 | — | — | 编辑落 event |
 | vocabulary_version | ✅ | ✅ 版本即溯源锚点 | — | — | 升级落 event |
 | alias_map | ✅ | 来源(人工/回流) | — | — | 变更落 event |
-| config_version | ✅ | ✅ 配置快照被标签引用 | — | 配置可含 task_type | 变更落 event |
-| event | ✅ | — | — | event_type 开放 | ✅ 只增/actor/occurred_at |
+| config_version | ✅ | ✅ 含 prompt sha256 | — | — | 变更落 event |
+| event | ✅ | — | — | event_type 开放 | ✅ 只增/actor CHECK/时间戳 |
 | selection* | ✅ | — | 引用 asset_id | — | 选图/转发落 event |
 | export_job | ✅ | 导出参数快照 | 打包引用 asset_id | — | 导出落 event(sensitive) |
+
+> 矩阵证明"想到了";每张表**接不接得住**真实操作,见 [scenario-walkthrough.md](./scenario-walkthrough.md) 三场景走查(裁决三要求)。
 
 ---
 
@@ -55,29 +58,27 @@
 ```sql
 CREATE TABLE tenant (
     tenant_id     BIGINT PRIMARY KEY,           -- 0 保留给平台公共库;不用 NULL 承载"无租户"
-    slug          TEXT UNIQUE NOT NULL,          -- 如 'demo_tenant'
-    display_name  TEXT NOT NULL,                 -- '示例工作室'
-    industry      TEXT NOT NULL DEFAULT 'balloon_party',  -- 首个行业
+    slug          TEXT UNIQUE NOT NULL,
+    display_name  TEXT NOT NULL,
+    industry      TEXT NOT NULL DEFAULT 'balloon_party',
     status        TEXT NOT NULL DEFAULT 'active',
     created_at    timestamptz NOT NULL DEFAULT now()
 );
+-- tenant_id=0(平台保留)与首个租户示例客户、初始管理用户,由建库迁移脚本种子写入,见 migration §4 步骤 0【C7】
 
 CREATE TABLE app_user (
     user_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id     BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    -- 双通道账号:Web=用户名密码;小程序=微信 openid。二者归一到"用户属某租户"
     username      TEXT,                          -- Web 端;租户内唯一
     password_hash TEXT,
-    wx_openid     TEXT,                          -- 小程序端
-    role          TEXT NOT NULL DEFAULT 'operator',  -- operator | reviewer | admin(租户内角色,非平台角色)
+    wx_openid     TEXT,                          -- 小程序端【arch 裁决5:账号体系隔断墙】
+    role          TEXT NOT NULL DEFAULT 'operator',  -- operator|reviewer|admin(租户内角色)
     status        TEXT NOT NULL DEFAULT 'active',
     created_at    timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, username),
     UNIQUE (tenant_id, wx_openid)
 );
 ```
-
-> 账号体系是隔断墙(第一版可简化),但 `tenant_id` 无特例。【不变量一】
 
 ### 3.2 asset — 资产与标签分离的锚点 【不变量三】
 
@@ -90,18 +91,20 @@ CREATE TABLE asset (
     mime_type      TEXT NOT NULL,
     width          INT,
     height         INT,
-    -- 对象存储 key 由 {tenant_id}/{asset_id}/... 规则推导,不作为业务依赖;此处仅缓存便于运维
-    storage_key    TEXT NOT NULL,
-    original_name  TEXT,                          -- 仅导出展示用,不承载任何业务逻辑
+    storage_key    TEXT NOT NULL,                -- 由 {tenant_id}/{asset_id}/... 规则推导的缓存,不作业务依赖
+    thumb_key      TEXT,                          -- 【Q4】仅当源格式 OSS 图片处理不支持时预生成;否则为空,缩略图实时生成
+    original_name  TEXT,                          -- 仅导出展示用,不承载业务
     uploaded_by    BIGINT REFERENCES app_user(user_id),
     uploaded_at    timestamptz NOT NULL DEFAULT now(),
     deleted_at     timestamptz,                   -- 软删;删除落 event
-    UNIQUE (tenant_id, content_hash)              -- 同租户内容去重
+    UNIQUE (tenant_id, content_hash),             -- 同租户内容去重
+    UNIQUE (asset_id, tenant_id)                  -- 【加固1】复合唯一,供 tag/task/selection_item 复合外键指向
 );
 CREATE INDEX asset_tenant_idx ON asset (tenant_id) WHERE deleted_at IS NULL;
 ```
 
-> 关键:业务只用 `asset_id` + `content_hash`。`storage_key` 是可再生的缓存字段,换存储供应商时按规则重算即可,业务层零改动。【不变量三】
+> **【Q3】软删资产重复上传:** `UNIQUE(tenant_id, content_hash)` 会挡"删了又传同一张图"。定义行为:上传命中的 content_hash 若属**已软删** asset(`deleted_at` 非空)→ 清空 `deleted_at` **恢复**该 asset(不新建行、asset_id 不变),并落"上传/恢复"event;命中未软删的则按普通去重跳过。
+> **【加固1】** `UNIQUE(asset_id, tenant_id)` 让下游表用复合外键 `(asset_id, tenant_id)` 指向 asset——"A 租户标签挂 B 租户图"在库层不可能,不变量一从纪律保证升级为结构保证。【不变量一】
 
 ### 3.3 task — 通用任务表(task_type 开放)【不变量四】
 
@@ -109,27 +112,30 @@ CREATE INDEX asset_tenant_idx ON asset (tenant_id) WHERE deleted_at IS NULL;
 CREATE TABLE task (
     task_id        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    task_type      TEXT NOT NULL,                 -- 本期仅 'tagging';未来 bom_extract/audit/… 直接加值,不改表
-    asset_id       BIGINT NOT NULL REFERENCES asset(asset_id),  -- 输入资产(引用非路径)
-    run_id         TEXT NOT NULL,                 -- 批次号,批量执行/断点续跑的键
+    task_type      TEXT NOT NULL,                 -- 本期仅 'tagging';未来 bom_extract/audit 直接加值,不改表
+    asset_id       BIGINT NOT NULL,               -- 输入资产(引用非路径)【Q5:统一用 asset_id,不用 input_ref】
+    run_id         TEXT NOT NULL,                 -- 批次号,批量/断点续跑键
     status         TEXT NOT NULL DEFAULT 'pending', -- pending|running|done|failed|needs_review
     config_version_id BIGINT REFERENCES config_version(config_version_id),
-    output         JSONB,                         -- 按 task_type 各自定义的结构化输出(tagging=四维标签原始 JSON)
-    output_schema_version TEXT,                   -- 如 'tagging_output_v2'
-    -- 溯源:代价与来源(token/model/耗时)
-    model_id       TEXT,                          -- 如 'qwen-vl-max'
+    output         JSONB,                         -- 按 task_type 各自定义的结构化输出(tagging=四维标签原始 JSON,含模型原样输出)
+    output_schema_version TEXT,                   -- 'tagging_output_v2'
+    model_id       TEXT,                          -- 'qwen-vl-max'(含版本)
     input_tokens   INT,
     output_tokens  INT,
     latency_ms     INT,
+    retry_count    INT NOT NULL DEFAULT 0,        -- 【Q6】重试次数
     error          TEXT,
     created_at     timestamptz NOT NULL DEFAULT now(),
-    finished_at    timestamptz
+    finished_at    timestamptz,
+    FOREIGN KEY (asset_id, tenant_id) REFERENCES asset(asset_id, tenant_id)  -- 【加固1】复合外键
 );
 CREATE INDEX task_tenant_type_idx ON task (tenant_id, task_type, status);
 CREATE INDEX task_run_idx ON task (tenant_id, run_id);
 ```
 
-> `task_type` 是普通字符串列,`output` 是 JSONB —— 新增任务类型不改表结构,只加新 `task_type` 值 + 新 `output_schema_version`。**不建任何插件/编排框架。**【不变量四"禁止"条款】
+> **【Q6】计费口径:** `failed` 任务与每次重试**真实消耗的 token 全部计入用量统计**(成本是真实发生的),`retry_count` 与逐次 token 均落库。是否就失败/重试**向租户收费**属"计费口径",将来单独定义;本期只保证"用量统计"口径完整、可聚合,二者区分写明。【不变量二】
+> **【队列=PG】** 任务队列 = 对 task 表 `SELECT ... FOR UPDATE SKIP LOCKED` 取 `pending` 行,不引 Redis。
+> `task_type` 普通列 + `output` JSONB —— 新增任务类型不改表结构。**不建插件/编排框架。**【不变量四"禁止"条款】
 
 ### 3.4 vocabulary / vocabulary_version / alias_map — 词表 【不变量二、三】
 
@@ -138,118 +144,146 @@ CREATE INDEX task_run_idx ON task (tenant_id, run_id);
 CREATE TABLE vocabulary_version (
     vocab_version_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    dimension      TEXT NOT NULL,                 -- 'structure' | 'color' | 'scene'
-    version_no     INT NOT NULL,                  -- 该维度下自增
+    dimension      TEXT NOT NULL,                 -- 'structure'|'color'|'scene'
+    version_no     INT NOT NULL,                  -- 该(租户,维度)下自增
     created_by     BIGINT REFERENCES app_user(user_id),
     created_at     timestamptz NOT NULL DEFAULT now(),
     note           TEXT,
     UNIQUE (tenant_id, dimension, version_no)
 );
 
--- 词表条目:概念级,预留多语言映射位(本期只填 zh)
+-- 词表条目:concept_key 稳定不改,labels 承载各语言词形(本期只填 zh),多语言留位
 CREATE TABLE vocabulary (
     vocab_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    dimension      TEXT NOT NULL,                 -- structure | color | scene
-    concept_key    TEXT NOT NULL,                 -- 概念稳定 id,如 'column'(立柱)、'arch'(拱门)
-    -- 多语言留位:翻译发生在词表层,不在数据层;本期只存 zh。【不变量三】
-    labels         JSONB NOT NULL,                -- {"zh":"立柱"} ；未来 {"zh":"立柱","en":"column"}
-    color_kind     TEXT,                          -- color 维专用:'simple'(单字色)|'compound'(复合色),迁移自旧 colors.yaml
+    dimension      TEXT NOT NULL,                 -- structure|color|scene
+    concept_key    TEXT NOT NULL,                 -- 稳定概念键(ASCII),如 'column'/'red'/'wedding' —— tag.value 存这个
+    labels         JSONB NOT NULL,                -- {"zh":"立柱"};未来 {"zh":"立柱","en":"column"}。翻译在此层,不在数据层【不变量三】
+    color_kind     TEXT,                          -- color 维专用:'simple'|'compound'
     active         BOOLEAN NOT NULL DEFAULT true,
     vocab_version_id BIGINT NOT NULL REFERENCES vocabulary_version(vocab_version_id),
-    UNIQUE (tenant_id, dimension, concept_key, vocab_version_id)
+    UNIQUE (tenant_id, dimension, concept_key, vocab_version_id),
+    -- 【A-4】labels 的 zh 词形在(租户,维度,同一版本)内唯一,否则模型输出词形→concept_key 反查歧义
+    UNIQUE (tenant_id, dimension, vocab_version_id, (labels->>'zh'))
 );
 
--- 输出归一化:模型输出别名 → 标准概念。按字段分区,迁移自旧 alias_map.yaml
+-- 输出归一化:模型输出的中文别名词形 → concept_key。按维度分区,迁移自旧 alias_map.yaml
 CREATE TABLE alias_map (
     alias_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     dimension      TEXT NOT NULL,                 -- structure|theme|color|scene
-    alias          TEXT NOT NULL,                 -- 别名/变体,如 '气球花盒'
-    standard_value TEXT NOT NULL,                 -- 标准值,如 '花盒'
-    source         TEXT NOT NULL DEFAULT 'human', -- human | sync_corrections(回流自动追加)
+    alias          TEXT NOT NULL,                 -- 别名/变体词形,如 '气球花盒'
+    concept_key    TEXT NOT NULL,                 -- 【A-2】指向标准 concept_key,如 'flowerbox'(不再是中文标准词形)
+    source         TEXT NOT NULL DEFAULT 'human', -- human|sync_corrections(回流自动追加)
     created_at     timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, dimension, alias)          -- 同字段同别名唯一,防冲突(旧逻辑:冲突/成环拒绝自动写)
+    UNIQUE (tenant_id, dimension, alias)          -- 同维度同别名唯一;冲突/成环由回流写入路径拒绝(旧逻辑保留)
 );
 ```
 
-### 3.5 tag — 标签溯源完整 【不变量二】
+> **【A-2】** `alias_map` 从"别名→中文标准词形"改为"别名词形→concept_key"。例:`气球花盒 → flowerbox`(不再是 `气球花盒 → 花盒`)。migration §1.3 迁移动作同步改。
+> **【A-4】归一化解析链(落库口径):** 模型按 prompt 注入的 zh 词表输出**中文词形** → 先查 `alias_map`(别名→concept_key),未命中再查当期 `vocabulary.labels.zh`(词形→concept_key)→ 命中则 `tag.value` 落 concept_key;**模型原始输出完整保留在 `task.output`**。两处都查不到走【A-6】失败路径(architecture §3.3,提案待批)。
 
-一条 AI 产出的标签,必须能回答"五问"。字段布局:
+### 3.5 tag — 标签溯源完整 + status + role 【不变量二 / C1 / C2 / 裁决二】
 
 ```sql
 CREATE TABLE tag (
     tag_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    asset_id       BIGINT NOT NULL REFERENCES asset(asset_id),   -- 挂在资产上(非路径/文件名)【不变量三】
-    task_id        BIGINT NOT NULL REFERENCES task(task_id),     -- 由哪个打标任务产生
+    asset_id       BIGINT NOT NULL,                             -- 挂资产(非路径/文件名)【不变量三】
+    task_id        BIGINT REFERENCES task(task_id),             -- 由哪个打标任务产生;human 补标签可空
 
-    dimension      TEXT NOT NULL,                 -- 'theme'|'color'|'structure'|'scene'
-    value          TEXT NOT NULL,                 -- 归一化后的当前值(经 alias_map)
-    -- ── 溯源五问 ──────────────────────────────────────────
-    -- 谁打的
-    source         TEXT NOT NULL,                 -- 'model' | 'human'
+    dimension      TEXT NOT NULL,                 -- 'theme'|'color'|'structure'|'scene'|'color_scheme'
+    -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'column'/'red');
+    --           theme 与 color_scheme 维为自由文本(模型自由生成,不受词表约束)
+    value          TEXT NOT NULL,
+    role           TEXT,                          -- 【裁决二】仅 dimension='color' 时取 'primary'|'accent';其余维必须为空
+    -- 【C1】status:active 参与检索;removed 为人工删除的错标,行与溯源永久保留、退出检索
+    status         TEXT NOT NULL DEFAULT 'active',                -- 'active'|'removed'
+
+    -- ── 溯源五问 ────────────────────────────────
+    source         TEXT NOT NULL,                 -- 'model'|'human'
     model_id       TEXT,                          -- 'qwen-vl-max'(含版本)
-    -- 在什么规则下打的
-    prompt_version TEXT,                           -- 提示词版本
-    vocab_version_id BIGINT REFERENCES vocabulary_version(vocab_version_id), -- 词表版本
+    prompt_version TEXT,                           -- 提示词版本(内容锚见 config_version,Q2)
+    vocab_version_id BIGINT REFERENCES vocabulary_version(vocab_version_id),
     config_version_id BIGINT REFERENCES config_version(config_version_id),
-    -- 基于什么输入打的
-    run_id         TEXT,                           -- 批次
-    input_hash     TEXT,                           -- = asset.content_hash 快照,输入内容 hash
-    -- 花了什么代价(token 用量按租户聚合即计费底层)
+    run_id         TEXT,
+    input_hash     TEXT,                           -- = asset.content_hash 快照
     input_tokens   INT,
     output_tokens  INT,
-    -- 打分
-    confidence     NUMERIC(4,3),                   -- 0.000–1.000
+    confidence     NUMERIC(4,3),
     needs_review   BOOLEAN NOT NULL DEFAULT false,
-    -- 后来被谁改过:修正链头(最新一次修正指针,详情在 tag_correction)
-    current_correction_id BIGINT,                  -- NULL=未被修正,当前即 model 原值
-    created_at     timestamptz NOT NULL DEFAULT now()
+    current_correction_id BIGINT,                  -- 最新修正指针;NULL=未被修正
+    created_at     timestamptz NOT NULL DEFAULT now(),
+
+    FOREIGN KEY (asset_id, tenant_id) REFERENCES asset(asset_id, tenant_id),  -- 【加固1】复合外键
+
+    -- 【裁决二】role 仅 color 维可非空
+    CONSTRAINT tag_role_only_color CHECK (role IS NULL OR dimension = 'color'),
+    -- 【C3】溯源按 source 分级强制:model 来源必须溯源齐全;human 补标签天然无模型溯源
+    CONSTRAINT tag_provenance_by_source CHECK (
+        source <> 'model' OR (
+            model_id IS NOT NULL AND prompt_version IS NOT NULL AND
+            vocab_version_id IS NOT NULL AND config_version_id IS NOT NULL AND
+            run_id IS NOT NULL AND input_hash IS NOT NULL
+        )
+    )
 );
-CREATE INDEX tag_filter_idx  ON tag (tenant_id, dimension, value);   -- 维度筛选主力
-CREATE INDEX tag_asset_idx   ON tag (tenant_id, asset_id);
+CREATE INDEX tag_filter_idx   ON tag (tenant_id, dimension, value) WHERE status = 'active';  -- 检索主力
+CREATE INDEX tag_color_role_idx ON tag (tenant_id, value) WHERE dimension='color' AND status='active';
+CREATE INDEX tag_asset_idx    ON tag (tenant_id, asset_id);
 CREATE INDEX tag_vocabver_idx ON tag (tenant_id, vocab_version_id);  -- 词表升级定位
 ```
 
-> `value` 存归一化后的当前值;原始模型值永久保留在 `tag_correction`(见下),**人工修正不覆盖原值**。【不变量二】
+> **【C2/A-1】** `value` 存 concept_key(受约束维度)或自由文本(theme/color_scheme)。展示词形一律经 `vocabulary.labels` 翻译;改词形("立柱"→"圆柱")= 纯词表编辑,零标签重写、零重打。
+> **【C1】status + human 补标签:** 删错标 = `status='removed'`(不 DELETE,原始值不销毁);补漏标 = 新增 `source='human'` 行、模型溯源列为空(CHECK 放行),不走修正链。检索一律 `status='active'`。
+> **【裁决二】role + color_scheme:** color 维带 `role`;`scheme_name`(如"红金")落 `dimension='color_scheme'` 自由文本,与 color 单色维互补、不混算。
 
-### 3.6 tag_correction — 修正链(只增)【不变量二、五】
+### 3.6 tag_correction — 修正链(只增,update/remove/restore)【C1 / 不变量二、五】
 
 ```sql
 CREATE TABLE tag_correction (
     correction_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     tag_id         BIGINT NOT NULL REFERENCES tag(tag_id),
-    old_value      TEXT NOT NULL,                 -- 修正前的值(第一次修正即 model 原值)
-    new_value      TEXT NOT NULL,                 -- 修正后的值
-    source         TEXT NOT NULL DEFAULT 'human', -- human | model(重打)
+    kind           TEXT NOT NULL,                 -- 【C1】'update'|'remove'|'restore'
+    old_value      TEXT,                          -- 【C1】可空:remove/restore 时可空
+    new_value      TEXT,                          -- 【C1】可空:remove 时为空
+    source         TEXT NOT NULL DEFAULT 'human', -- human|model(重打)
     corrected_by   BIGINT REFERENCES app_user(user_id),
     corrected_at   timestamptz NOT NULL DEFAULT now(),
-    reason         TEXT
-    -- 只增不改不删:一条 tag 的多次修正 = 多行,按 corrected_at 排即完整履历
+    reason         TEXT,
+    -- 【C1】按 kind 约束值的有无:改值两值齐全;删标无新值;恢复无值(仅状态迁回)
+    CONSTRAINT correction_shape CHECK (
+        (kind='update'  AND old_value IS NOT NULL AND new_value IS NOT NULL) OR
+        (kind='remove'  AND new_value IS NULL) OR
+        (kind='restore')
+    )
 );
 CREATE INDEX tag_correction_tag_idx ON tag_correction (tenant_id, tag_id, corrected_at);
 ```
 
-> 原始模型值 = `tag_correction` 中该 tag 最早一行的 `old_value`(或 tag 从未被修正时 = `tag.value`)。修正回流(sync_corrections)的 diff 基准即此,不再依赖旧项目的 `original_tags` 快照表。【不变量五】
+> 只增不改不删:一条 tag 的多次修正 = 多行,按 `corrected_at` 排即完整履历。原始模型值 = 该 tag 最早一行 `update` 的 `old_value`(从未修正时 = `tag.value`)。修正回流(sync_corrections)的 diff 基准即此。【不变量二、五】
+> **补标签不入本表**(它是新增 tag 行,不是对已有 tag 的修正),仅落 event。【C1 改法3】
 
-### 3.7 config_version — 配置版本快照 【不变量二】
+### 3.7 config_version — 配置版本快照(含 prompt 内容锚)【不变量二 / Q2】
 
 ```sql
 CREATE TABLE config_version (
     config_version_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    scope          TEXT NOT NULL,                 -- 'tagging' | 'review' | ...
-    payload        JSONB NOT NULL,                -- 快照:{model, temperature, few_shot:false, image_max_edge, review_threshold,...}
+    scope          TEXT NOT NULL,                 -- 'tagging'|'review'|...
+    payload        JSONB NOT NULL,                -- 快照:{model,temperature,few_shot,image_max_edge,review_threshold,...}
+    prompt_version TEXT,                           -- 【Q2】对应的提示词版本号
+    prompt_sha256  TEXT,                           -- 【Q2】提示词本体内容 hash,锚定"在什么规则下打的"
     created_by     BIGINT REFERENCES app_user(user_id),
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 ```
 
-> 生产打标配置(`qwen-vl-max` / 无 few-shot / `temperature=0` / `image_max_edge=1568`)作为首个 `tagging` scope 的 payload 落库,被每条标签 `config_version_id` 引用。【迁移自旧项目锁定配置】
+> **【Q2】提示词内容锚 + 双保险纪律:** `prompt_version` 仅是字符串,同版本号下改文件会让溯源失真。故 ① `config_version` 记 `prompt_sha256`(提示词本体内容 hash);② 立纪律:**提示词文件按版本号命名、只增不改**(改内容 = 升版本号),迁移见 migration §1.1。标签经 `config_version_id` 关联到确切的 prompt 内容。
+> 生产打标配置(`qwen-vl-max`/无 few-shot/`temperature=0`/`image_max_edge=1568`)为首个 `tagging` scope payload,迁移自旧项目锁定配置。
 
-### 3.8 event — 事件流水(唯一事件承重墙)【不变量五】
+### 3.8 event — 事件流水(唯一事件承重墙)【不变量五 / C6 / Q7】
 
 ```sql
 CREATE TABLE event (
@@ -257,21 +291,27 @@ CREATE TABLE event (
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),   -- 带 tenant
     event_type     TEXT NOT NULL,   -- upload|tagging_done|correction|selection|export|config_change|delete|...(开放)
     actor_user_id  BIGINT REFERENCES app_user(user_id),            -- 带行为人
-    actor_kind     TEXT NOT NULL DEFAULT 'human',                  -- human|system(system 打标完成等)
+    actor_kind     TEXT NOT NULL,                                  -- 【C6】去 default,human|system
     occurred_at    timestamptz NOT NULL DEFAULT now(),             -- 带时间戳
-    sensitive      BOOLEAN NOT NULL DEFAULT false,                 -- true 子集 = 审计视图(导出全库/删除/配置变更)
-    subject_type   TEXT,            -- 'asset'|'tag'|'vocabulary'|... 关联对象类型
+    sensitive      BOOLEAN NOT NULL DEFAULT false,                 -- 由写入函数按 event_type 集中推导,非调用方手填【Q7】
+    subject_type   TEXT,            -- 'asset'|'tag'|'vocabulary'|...
     subject_id     BIGINT,
-    payload        JSONB            -- 事件明细
-    -- 只增不改不删:无 UPDATE/DELETE 入口,应用层与权限双重禁止
+    payload        JSONB,
+    -- 【C6】human 行为必须有行为人;system 行为(打标完成等)允许无 user
+    CONSTRAINT event_actor_present CHECK (
+        (actor_kind='human' AND actor_user_id IS NOT NULL) OR actor_kind='system'
+    )
 );
 CREATE INDEX event_tenant_time_idx ON event (tenant_id, occurred_at);
 CREATE INDEX event_audit_idx ON event (tenant_id, occurred_at) WHERE sensitive;
+-- 【加固2】只增落到 DDL(非注释):迁移脚本执行 REVOKE UPDATE, DELETE ON event FROM <app_role>;
 ```
 
-> 审计视图 = `WHERE sensitive`,不另建审计表;用量计费 = 从 `tag`/`task` 的 token 聚合,不另建计量系统。【不变量二、五】
+> **【C6】** `actor_kind` 去掉默认值 + CHECK:杜绝"human 行为但无行为人"的脏事件——原设计 `DEFAULT 'human'` 把最常见的遗漏方向变成违宪方向,现由 CHECK 兜底。【不变量五 — 带行为人】
+> **【Q7】** `sensitive` 由唯一写入函数 `record_event()` 按 `event_type→bool` 集中映射推导(见 architecture §3.6),不散在调用点手填。
+> **【加固2】** "权限层回收 UPDATE/DELETE" 写成实际 `REVOKE` 语句进迁移脚本,不停留在注释。审计视图 = `WHERE sensitive`;用量计费 = 从 task/tag 的 token 聚合,均不另建系统。【不变量二、五】
 
-### 3.9 selection / export_job(小程序选图 & 导出)
+### 3.9 selection / export_job
 
 ```sql
 CREATE TABLE selection (            -- 选图篮
@@ -284,99 +324,124 @@ CREATE TABLE selection (            -- 选图篮
 CREATE TABLE selection_item (
     selection_id   BIGINT NOT NULL REFERENCES selection(selection_id),
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
-    asset_id       BIGINT NOT NULL REFERENCES asset(asset_id),   -- 引用 asset_id,非路径
+    asset_id       BIGINT NOT NULL,
     added_at       timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (selection_id, asset_id)
+    PRIMARY KEY (selection_id, asset_id),
+    FOREIGN KEY (asset_id, tenant_id) REFERENCES asset(asset_id, tenant_id)  -- 【加固1】复合外键
 );
 CREATE TABLE export_job (
     export_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     requested_by   BIGINT REFERENCES app_user(user_id),
-    kind           TEXT NOT NULL,                 -- 'tag_json' | 'tag_csv' | 'asset_zip'
-    params         JSONB,                         -- 筛选条件快照
+    kind           TEXT NOT NULL,                 -- 'tag_json'|'tag_csv'|'asset_zip'
+    params         JSONB,
     status         TEXT NOT NULL DEFAULT 'pending',
-    result_key     TEXT,                          -- 产物在对象存储的 key
+    result_key     TEXT,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 ```
 
 ---
 
-## 4. 三个典型查询走查
+## 4. 三个典型查询走查(按方案 A · concept_key 改写)
 
-### 查询①:筛选「配色=红金 且 造型=立柱」的图 【不变量一、三】
+> 自查口径:以下查询与 [migration.md](./migration.md) §1.2【A-3】的 concept_key 提案一致(`column`/`red`/`gold`/`structure`/`color`)。展示层一律 **API 只返回 `asset_id`**,词形与图 URL 分别经 `vocabulary` 翻译、`StorageBackend` 签发,**不把 concept_key 或 storage_key 吐给前端**【A-5/Q8】。
 
-`红金` 是配色的 `scheme_name` 语义,底层落成 color 维度的两个概念(`红`+`金`)或复合概念;此处按"造型含立柱 且 配色含红、含金"给出可执行 SQL。标签维度筛选 = `tag` 表自连接,GIN/BTree 索引支撑,**无需向量检索**。
+### 查询①:筛选「配色=红金 且 造型=立柱」的图 【不变量一、三 / A-5 / 裁决二 / Q8】
+
+「红金」= 主色含 red 与 gold。默认按主色(`role='primary'`)。
 
 ```sql
--- 参数::tenant, 造型='立柱', 配色需同时含 '红' 与 '金'
-SELECT a.asset_id, a.storage_key
+-- 参数::tenant;造型 concept_key='column';主色含 'red' 与 'gold'
+SELECT a.asset_id                                   -- 【Q8】只出 asset_id,不出 storage_key
 FROM asset a
 WHERE a.tenant_id = :tenant AND a.deleted_at IS NULL
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
-              AND t.dimension='structure' AND t.value='立柱')
+              AND t.status='active' AND t.dimension='structure' AND t.value='column')
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
-              AND t.dimension='color' AND t.value='红')
+              AND t.status='active' AND t.dimension='color' AND t.role='primary' AND t.value='red')
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
-              AND t.dimension='color' AND t.value='金');
+              AND t.status='active' AND t.dimension='color' AND t.role='primary' AND t.value='gold');
+-- 【裁决二】"含点缀色"开关 = 去掉两处 role='primary' 谓词(放宽到全部 color 标签)
+-- 【A-5】展示层:对返回的 asset_id 批量 JOIN vocabulary 取 labels->>'zh' 得中文词形;
+--        图 URL 由 StorageBackend.presign/thumbnail_url 签发。concept_key 不出 API。
 ```
 
-- 走 `tag_filter_idx (tenant_id, dimension, value)`;每个 EXISTS 一次索引探测。
-- `tenant_id` 全程带在每个子查询,跨租户不可能命中。【不变量一】
-- 命中的是 `asset_id` → `storage_key` 取图,**不碰文件名/目录**。【不变量三】
-- 若产品把「红金」作为 `scheme_name` 直接存了一条 color 标签,则退化为单个 EXISTS(`value='红金'`),更快。
+- 走 `tag_filter_idx (tenant_id, dimension, value) WHERE status='active'`;每个 EXISTS 一次索引探测。
+- `status='active'` 排除人工删除的错标【C1】;`role='primary'` 落实默认主色口径【裁决二】。
+- `tenant_id` 全程带,跨租户不可能命中。【不变量一】命中 `asset_id` → 展示层签发 URL,不碰文件名/目录。【不变量三】
 
-### 查询②:词表升级后,找出需重打的标签 【不变量二】
+### 查询②:词表升级后,找出需重打的标签 【不变量二 / C4】
 
-词表某维度从 v3 升级到 v4(如新增造型概念、修订标准值)。需重打 = "用旧于 v4 的词表版本打的、该维度的标签"。
+structure 维从 v(旧)升级到新版本。需重打 = "该维度、用早于新版本的词表版本打的、资产未软删的 active 标签"。
 
 ```sql
--- 参数::tenant, :dimension='structure', :new_vocab_version_id(v4 的 id)
+-- 参数::tenant, :dimension='structure', :new_vocab_version_id
+-- 主命中集
 SELECT DISTINCT t.asset_id
 FROM tag t
-JOIN vocabulary_version vv ON vv.vocab_version_id = t.vocab_version_id
-WHERE t.tenant_id = :tenant
-  AND t.dimension = :dimension
+JOIN asset a
+  ON a.asset_id = t.asset_id AND a.tenant_id = t.tenant_id
+ AND a.deleted_at IS NULL                                          -- 【C4-3】排除软删资产,不烧 token
+LEFT JOIN vocabulary_version vv                                    -- 【C4-2】LEFT JOIN,不静默漏 NULL
+  ON vv.vocab_version_id = t.vocab_version_id
+ AND vv.tenant_id = :tenant AND vv.dimension = :dimension          -- 【C4-1】限定同租户同维度
+WHERE t.tenant_id = :tenant AND t.dimension = :dimension AND t.status='active'
   AND vv.version_no < (SELECT version_no FROM vocabulary_version
-                       WHERE vocab_version_id = :new_vocab_version_id);
--- 结果 asset_id 集合 → 生成一批 task(task_type='tagging', 新 config/vocab 版本),批量重打
+                       WHERE vocab_version_id = :new_vocab_version_id
+                         AND tenant_id = :tenant AND dimension = :dimension);
+
+-- 【C4-2】单独输出"待人工归类"清单:vocab_version_id IS NULL 的标签(human 补的/历史脏数据),
+--          这些最需要进复核,绝不能被 INNER JOIN 静默吞掉
+SELECT DISTINCT t.asset_id
+FROM tag t
+JOIN asset a ON a.asset_id=t.asset_id AND a.tenant_id=t.tenant_id AND a.deleted_at IS NULL
+WHERE t.tenant_id=:tenant AND t.dimension=:dimension AND t.status='active'
+  AND t.vocab_version_id IS NULL;
 ```
 
-- 全靠标签溯源里的 `vocab_version_id`;没有溯源就无法定位——这正是不变量二要求"版本号永久保留"的用途。【不变量二】
-- 走 `tag_vocabver_idx`。重打即新建 task,老标签保留(历史可追),不覆盖。
+- 【C4-1】补 `vv.tenant_id`/`vv.dimension` 谓词:`version_no` 按(租户,维度)独立自增,跨维度比大小无意义,不能靠"恰好指向同维度"的无约束假设。
+- 主命中集 asset_id → 生成新 task(`task_type='tagging'`,新 config/vocab 版本)批量重打;**老标签保留不覆盖**(历史可追),证据见 scenario 场景 2。【不变量二】
 
-### 查询③:某租户本月 token 用量 【不变量二、五】
+### 查询③:某租户本月 token 用量 【不变量一、二、五 / C5 / Q6】
 
-计费 = 溯源里的 token 按租户/时间聚合,**不另建计量系统**。既可从 `task`(每次调用),也可从 `tag` 聚合;下例用 `task`(一次模型调用一行,最准)。
+计费 = 溯源 token 按租户/时间聚合,不另建计量系统。
 
 ```sql
--- 参数::tenant, 本月区间 :start, :end
+-- 租户侧(常规路径):必须带 tenant 谓词。租户中间件强制注入,租户侧 API 永远发不出无 tenant 谓词的查询
 SELECT date_trunc('day', created_at) AS day,
-       count(*)                     AS n_calls,
-       sum(input_tokens)            AS in_tok,
-       sum(output_tokens)           AS out_tok
+       count(*)              AS n_calls,
+       sum(input_tokens)     AS in_tok,
+       sum(output_tokens)    AS out_tok
 FROM task
 WHERE tenant_id = :tenant
   AND task_type = 'tagging'
   AND created_at >= :start AND created_at < :end
 GROUP BY 1 ORDER BY 1;
--- 全租户总量:去掉 tenant 过滤并 GROUP BY tenant_id,即多租户计量报表底稿
 ```
 
-- 走 `task_tenant_type_idx`。token 用量是"未来按量计费的底层",本期不做计费 UI,但数据从第一天就可聚合。【不变量二】
+- **【Q6】** failed 任务与重试消耗的 token **全部计入用量统计**(成本真实发生);是否据此向租户收费属"计费口径",将来单独定义。用量统计 ≠ 计费口径,文档明确区分。
+- **【C5】平台级跨租户聚合**(去 tenant 谓词、`GROUP BY tenant_id`)是**跨租户访问**,宪法要求"显式声明 + 留审计"。因此:此类查询**禁止经租户侧 API**,须走**独立于租户中间件的"平台侧入口"**,且调用时落 `sensitive=true` 审计事件。文档级不写成"顺手去掉 tenant 过滤",防止蔓延成代码级随意。【不变量一】
 
 ---
 
 ## 5. 索引与约束小结
 
-- 每张业务表首列 `tenant_id` 且入组合索引首位——租户过滤是所有查询的前缀。【不变量一】
-- 去重:`asset (tenant_id, content_hash)` 唯一。【不变量三】
-- 溯源不可空的关键列(生产环境):`tag.model_id / prompt_version / vocab_version_id / config_version_id / run_id / input_hash`——评审确认后在迁移里加 `NOT NULL`(草案暂留可空以便回填历史迁移数据)。【不变量二 / 见 §6 待裁决】
-- `event` 无 UPDATE/DELETE 路径,权限层回收这两个动作。【不变量五】
+- 每张业务表首列 `tenant_id` 且入组合索引首位——租户过滤是所有查询前缀。【不变量一】
+- 去重:`asset (tenant_id, content_hash)` 唯一;**【加固1】** `asset (asset_id, tenant_id)` 唯一 + 下游 `(asset_id, tenant_id)` 复合外键,跨租户挂图库层不可能。
+- **【C3】溯源强制用 CHECK 分级,不用列级 NOT NULL:** `tag_provenance_by_source` —— `source='model'` 的标签六项溯源(model_id/prompt_version/vocab_version_id/config_version_id/run_id/input_hash)第一天强制非空;`source='human'` 补的标签天然无模型溯源,CHECK 按 source 放行。**删除原 §6"migrated 放宽"条款**:按 migration §2.3/§3.4,评测 run 产物不入生产库、存量图用生产配置重打溯源写全,根本不存在"会入库的溯源不全迁移标签",放宽对象不存在。
+- **【C6】** `event` actor CHECK;**【加固2】** `event` 迁移脚本 `REVOKE UPDATE, DELETE`。
+- **【C1】** `tag.status` + `tag_correction.kind` + CHECK 承载改值/删标/补标/恢复四类操作,原始值永不销毁。
 
-## 6. 待评审裁决点
+## 6. 裁决落定(原 §6 待裁决点,已按裁决记录关闭)
 
-1. **「红金」的落库粒度** — 存成一条 `scheme_name='红金'` 标签,还是拆成 `红`+`金` 两条 color 标签?二者查询写法不同(查询①已给两种)。建议**两者都存**:`scheme_name` 便于人看与转发,拆分色便于交叉筛选;代价是每图 color 维度多几条标签。
-2. **溯源列 NOT NULL 的时机** — 新数据应强制非空;但迁移历史标签(旧项目产物)可能缺字段。建议:新写入路径强制,迁移数据放宽并标 `source='migrated'`。见 [migration.md](./migration.md)。
-3. **RLS vs 应用层过滤** — 本期用应用层强制 `tenant_id` 过滤;是否第一天就上 PostgreSQL Row-Level Security?建议留位不启用(隔断墙允许后置),但表结构已就绪。
-4. **多值维度是否用数组列** — `tag` 采用"一维度多行"而非数组列,利于 GIN 单值索引与修正链挂载;确认可接受。
+| 原裁决点 | 裁决结果(已执行) |
+|---|---|
+| 「红金」落库粒度 | 【裁决二】红/金作为 color 维 concept_key 存(带 role);`scheme_name`"红金"落**独立维度 `color_scheme`** 自由文本,不混入 color,避免污染单色统计与筛选 |
+| 溯源 NOT NULL 时机 | 【C3】删 migrated 放宽,改 CHECK 按 source 分级,第一天强制 |
+| RLS vs 应用层 | 【加固3】留位不启用 + 补集成测试:**无租户上下文的查询路径必须失败**(应用层过滤方案的唯一安全网),见 [migration.md](./migration.md) §4 / architecture §3.1 |
+| 多值维度多行 vs 数组 | 同意多行(GIN 单值索引 + 修正链挂载 + status/role 逐值可控),理由成立 |
+| Q1 主色/辅色 | 【裁决二】保留,`tag.role` 承载,默认检索按 `role='primary'` |
+| tag.value 语义 | 【C2/方案A】受词表约束维度存 concept_key,theme/color_scheme 自由文本 |
+
+> **【加固3】RLS 配套测试(纪律)**:即便本期用应用层 `tenant_id` 过滤,也须有一条集成测试断言"缺租户上下文 → 查询失败/被拒",作为不变量一的安全网;RLS 结构留位、暂不启用。

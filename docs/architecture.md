@@ -69,6 +69,8 @@
 
 > 关键:无论选哪家,**业务层通过 `asset_id` + 内容 hash 访问资产,不出现任何 provider SDK 之外的路径依赖**;存储适配封装成一个 `StorageBackend` 接口(`put/get/presign/thumbnail_url`),换供应商只改这一个实现。【符合:不变量三 — 更换存储供应商业务层零改动】
 
+> **【Q4】缩略图统一口径:** 默认**不预生成、不落库**,由 `StorageBackend.thumbnail_url()` 在取图时以 OSS 图片处理参数**实时生成**(缩放/转 JPEG)。**唯一例外:** 入库时若探测到 OSS 图片处理不支持的源格式(如个别 HEIC 变体、CMYK 等),在入库管线里预生成一张 JPEG 缩略图并作为该 asset 的派生物存储,`asset` 记 `thumb_key`;其余情况 `thumb_key` 为空、走实时。migration §3.3 的"另生成 JPEG 缩略图"据此收敛为"仅不支持格式预生成",不是全量预生成。
+
 ### 2.4 打标引擎:阿里百炼 Qwen-VL-Max
 
 **生产配置锁定(迁移自旧项目评测结论,见 [migration.md](./migration.md)):**
@@ -93,7 +95,7 @@ docker-compose:
   api        FastAPI(uvicorn/gunicorn)
   worker     打标 worker(批量任务执行,与 api 同镜像不同入口)
   postgres   PostgreSQL 15 + 持久卷
-  redis      任务队列 / 复核队列的轻量后端(可选,详见 3.3)
+  # 【队列=PG】不引 Redis:任务队列走 PG 的 SELECT ... FOR UPDATE SKIP LOCKED,少一个依赖(见 §3.3)
   # 对象存储用云端 OSS,不入 compose
 ```
 
@@ -116,7 +118,7 @@ docker-compose:
 
 统一抽象:`任务(输入资产, task_type, 配置版本) → (结构化输出, 溯源记录)`。
 
-- 本期只实现 `task_type = tagging`。任务表结构对类型开放:`task_type` 是普通字符串列,`input_ref` / `output`(JSONB)/ `config_version` 通用。
+- 本期只实现 `task_type = tagging`。任务表结构对类型开放:`task_type` 是普通字符串列,`asset_id`(输入资产,宪法任务契约的输入即资产)/ `output`(JSONB)/ `config_version` 通用。【Q5:术语统一为 `asset_id`,不再用 `input_ref`】
 - 输出 schema 按 task_type 版本化:`tagging` 的 schema 迁移自旧项目 `schema/output_schema.json`(四维:主题/配色/造型/场景 + 衍生字段),以 pydantic 模型 + 版本号 `tagging_output_v2` 落地。
 - **不做**插件框架、任务编排引擎、引擎市场。新增任务类型 = 新增一个 `task_type` 常量 + 一套输出 schema + 一个执行函数,核心表不动。【符合:不变量四"禁止"条款】
 
@@ -124,9 +126,17 @@ docker-compose:
 
 - **批量执行:** worker 从任务队列取待打标资产,调 Qwen-VL,写 `tag` 表(每条标签带完整溯源)+ 写 `task` 记录 + 落"打标完成"事件。并发/重试/断点续跑复用旧项目 `run` 配置(concurrency、max_retries 指数退避、resume 跳过已完成)。
 - **复核队列:** 打标结果 `confidence < 阈值` 或 `needs_review = true` 的进入复核队列(本质是一个按条件筛的视图/查询,不是新子系统)。阈值是租户级配置项,变更落"配置变更"事件。【符合:留位置不建房间 — 队列 = 查询,不建独立引擎】
-- **人工修正:** 审核员在 Web 端改标签 → **不覆盖原始值**,以修正链追加(`source=human, corrected_by, corrected_at, 原始值保留`)+ 落"人工修正"事件。【符合:不变量二 — 人工修正以修正链追加】
+- **人工修正(三种操作)【C1】:** 审核员在 Web 端对标签有三类操作,**任何一种都不覆盖/不销毁原始值**:
+  - **改值(update):** `tag_correction` 追加一行 `kind='update'`,`tag.value` 更新为新概念键,`old_value` 保留;
+  - **删错标(remove):** 模型幻觉出的标签(如根本不存在的"拱门"),`tag.status` 置 `removed`,`tag_correction` 追加 `kind='remove'`(`new_value` 空)。检索一律 `status='active'`,该标签退出检索但原始行与溯源永久保留;
+  - **补漏标(add):** 模型漏掉的造型,**新增一条 `tag` 行**(`source='human'`,模型溯源列为空),**不走修正链**,只落"人工修正"事件。
+  - 三种操作均落 `event`(event_type='correction')。表结构与 CHECK 见 [data-model.md](./data-model.md) §3.5/§3.6。【符合:不变量二 — 人工修正不覆盖原始值】
+- **【Q1/裁决二】颜色检索默认按主色:** `dimension='color'` 的标签带 `role`('primary'|'accent')。消费者挑气球方案按主色调判断,故颜色筛选**默认只命中 `role='primary'`**(搜"红金" = 主色含 red 与 gold);另提供"含点缀色"开关,放宽到全部 color 标签。`scheme_name`(整套配色命名,如"红金")落**独立维度 `color_scheme`**、自由文本,不混入 color 维,避免污染单色统计与筛选。
 
-> Redis 仅作为可选的轻量队列后端;若初期用 PG 表 + `SELECT ... FOR UPDATE SKIP LOCKED` 当队列也可,不引入即减一个依赖。这属于隔断墙,评审时二选一即可。
+> **【A-6 · 提案待批】归一化反查失败路径:** 模型输出的中文词形,在 `alias_map` 与当期 `vocabulary.labels.zh` 都查不到对应概念键时,如何落库?
+> **提案(倾向方案一):** ① **落库 + 标记复核**——照常写入 `tag`,`value` 暂存**原始中文词形**并加维度前缀标识(如 `raw:蝴蝶结拱门`)、`needs_review=true`,进复核队列由人工归类(补 alias 或扩词表后重解析)。好处:不丢模型信号,与旧项目"词表外造型汇总供人工扩表"的成熟做法一致;检索默认按概念键,`raw:` 前缀值天然不被普通筛选命中,不污染结果。② **拒收进队列**——不写 `tag`,整条打标结果挂起等人工。缺点:丢失同图其他已识别维度的可用标签,与"多造型都要列出"相悖。**建议采纳①,待批。** 采纳后此段并入本节正文。
+
+> **【队列=PG】** 任务/复核队列均走 PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED`,**不引入 Redis**(裁决:单机规模用不上,少一个依赖符合轻纪律;将来见真实瓶颈再议)。
 
 ### 3.4 词表与 alias_map 管理 【符合:不变量二、三】
 
@@ -149,6 +159,7 @@ docker-compose:
 - 单张 `event` 表,**只增不改不删**,每条带 `tenant_id / actor / event_type / occurred_at / payload(JSONB)`。
 - 覆盖行为:上传、打标完成、人工修正、选图、导出/发送、配置变更、数据导出、删除。
 - **审计视图** = 事件中 `sensitive=true` 的子集(导出全库、删除、权限与配置变更),不另建审计表。
+- **【Q7】写入收敛单一函数:** 所有事件写入走唯一的 `record_event(event_type, actor, subject, payload)`;`sensitive` **不由调用方手工置位**,而由函数内一张 `event_type → bool` 的集中映射推导(如 `export/delete/config_change → true`)。杜绝散落调用点漏标敏感位。`actor` 约束见 data-model §3.8(CHECK 兜底)。
 - **用量计费** = 溯源记录里的 token 用量按租户/时间聚合,不另建计量系统。【符合:不变量二、五】
 - 运维日志(报错/延迟)走标准 logging(stdout → 云日志),**不入**业务库。
 
