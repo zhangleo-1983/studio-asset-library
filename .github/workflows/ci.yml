@@ -1,0 +1,84 @@
+name: CI
+
+# 每次 push / PR 触发。两个 job:
+#   test    —— 起 PG15,alembic upgrade head + balloon-seed + pytest(checklist 实测复现搬进 CI)
+#   compose —— docker compose up --build,轮询 api 健康检查直到通过,再 compose down
+#
+# 注意:全程无任何真实密钥。骨架期 compose 不依赖 OSS/百炼凭据(OSS 配置默认空、compose 不引用);
+# postgres 的 balloon/balloon 是 CI/本地一次性口令,非生产密钥。若将来 compose 需要外部凭据启动,
+# 那是骨架 bug,应修骨架,而非往 CI 塞 secret。
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: balloon
+          POSTGRES_PASSWORD: balloon
+          POSTGRES_DB: balloon_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U balloon -d balloon_platform"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # 主库(建库实测复现用)
+      DATABASE_URL: postgresql+psycopg2://balloon:balloon@localhost:5432/balloon_platform
+      # pytest conftest 从此派生 balloon_platform_test(带凭据)
+      TEST_ADMIN_URL: postgresql+psycopg2://balloon:balloon@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: 从零建库实测复现(alembic upgrade head + balloon-seed)
+        run: |
+          alembic upgrade head
+          balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
+          # 幂等重放应跳过
+          balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
+
+      - name: 集成测试(两条:无租户上下文拒绝 / 双 tenant 重放隔离)
+        run: pytest -q
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: compose up --build(api / worker / postgres,无 Redis)
+        run: docker compose up -d --build
+
+      - name: 轮询 api 健康检查直到通过(超时 180s)
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/healthz | grep -q '"status":"ok"'; then
+              echo "api healthy after ${i} tries"
+              exit 0
+            fi
+            echo "waiting for api... (${i})"
+            sleep 3
+          done
+          echo "api 未在超时内就绪,dump 日志:"
+          docker compose logs
+          exit 1
+
+      - name: 关停
+        if: always()
+        run: docker compose down -v

@@ -1,5 +1,7 @@
 # balloon-platform
 
+[![CI](https://github.com/zhangleo-1983/studio-asset-library/actions/workflows/ci.yml/badge.svg)](https://github.com/zhangleo-1983/studio-asset-library/actions/workflows/ci.yml)
+
 定制服务行业选款与供应链 SaaS 平台(首个行业:气球派对设计;首个租户:示例客户)。
 
 > **当前阶段:仓库骨架**(architecture.md §10 第一步)。只建骨架,不写打标业务闭环。
@@ -50,8 +52,8 @@ export DATABASE_URL="postgresql+psycopg2://localhost:5432/balloon_platform"
 docker compose up --build     # api / worker / postgres(无 Redis)
 ```
 
-> 状态:YAML 与镜像入口已校验(services 齐、api/worker 均可 import);`docker compose up --build`
-> 的实机启动**待有 docker 的环境验证**,结果回填此行(骨架构建机未装 docker)。
+> 状态:**已由 CI 每次提交自动验证**(`compose` job:`docker compose up -d --build` → 轮询
+> `/healthz` 通过 → `compose down`),badge 见页首。
 
 ## 交付自证
 

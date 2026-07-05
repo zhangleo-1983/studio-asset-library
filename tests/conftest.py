@@ -9,12 +9,15 @@ import os
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 ADMIN_URL = os.environ.get(
     "TEST_ADMIN_URL", "postgresql+psycopg2://localhost:5432/postgres"
 )
 TEST_DB = os.environ.get("TEST_DB", "balloon_platform_test")
-TEST_URL = f"postgresql+psycopg2://localhost:5432/{TEST_DB}"
+# 从 ADMIN_URL 派生测试库 URL:沿用同一 host/端口/**凭据**,只换库名。
+# 本地默认无凭据(peer/trust);CI 的 postgres service 需 user:pass,经 TEST_ADMIN_URL 带入。
+TEST_URL = make_url(ADMIN_URL).set(database=TEST_DB).render_as_string(hide_password=False)
 
 
 @pytest.fixture(scope="session", autouse=True)
