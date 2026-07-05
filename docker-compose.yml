@@ -1,0 +1,48 @@
+# compose 三件套:api / worker / postgres。
+# 【队列=PG】不引 Redis:任务队列走 PG 的 SELECT ... FOR UPDATE SKIP LOCKED。
+# 对象存储用云端 OSS,不入 compose。
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: balloon
+      POSTGRES_PASSWORD: balloon
+      POSTGRES_DB: balloon_platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U balloon -d balloon_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://balloon:balloon@postgres:5432/balloon_platform
+    # api 入口:先建库到 head,再起 uvicorn。种子由运维单独跑 balloon-seed(参数化)。
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+psycopg2://balloon:balloon@postgres:5432/balloon_platform
+    # worker 入口:同镜像不同入口(本期空转占位,不跑打标)。
+    command: ["python", "-m", "app.worker"]
+
+volumes:
+  pgdata:

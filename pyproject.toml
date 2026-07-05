@@ -1,0 +1,34 @@
+[project]
+name = "balloon-platform"
+version = "0.1.0"
+description = "定制服务行业选款与供应链 SaaS 平台(首个行业:气球派对;首个租户:示例客户)——仓库骨架"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+# 参数化种子脚本入口(migration.md §4 步骤 0 的租户级重放)
+balloon-seed = "app.seed:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
