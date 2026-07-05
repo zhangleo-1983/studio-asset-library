@@ -1,8 +1,8 @@
 # balloon-platform 数据模型草案
 
-> 状态:**R01 返修稿(v2),待二审**。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
-> 本稿按《评审意见 v1》C1–C7/Q2–Q8/加固三条 与《裁决记录》裁决一(C2=方案A)、裁决二(Q1=主色 role)逐条返修;每处修改在文中标注清单编号(如【C1】【C2/A-1】)。
-> **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名提案见 [migration.md](./migration.md) §1.2【A-3】。
+> 状态:**R02 二审返修稿(v3),待差量核销**。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
+> 本稿在 v2 基础上按《评审意见 R02》N1–N12 与《裁决记录 R02》裁决四(A-3 冻结)、裁决五(A-6+N1 合并:status 四态 + 反查失败落库)返修;R02 新增/变更处标注 N 编号(如【N1】【N4】),沿用编号(如【C1】【A-3】)保留。
+> **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名**已由裁决四批准并冻结**,见 [migration.md](./migration.md) §1.2【A-3 定稿】。
 > DDL 用 PostgreSQL 方言书写,表达结构意图,非最终迁移脚本。命名 snake_case,时间戳一律 `timestamptz`(UTC)。
 
 ---
@@ -120,8 +120,8 @@ CREATE TABLE task (
     output         JSONB,                         -- 按 task_type 各自定义的结构化输出(tagging=四维标签原始 JSON,含模型原样输出)
     output_schema_version TEXT,                   -- 'tagging_output_v2'
     model_id       TEXT,                          -- 'qwen-vl-max'(含版本)
-    input_tokens   INT,
-    output_tokens  INT,
+    input_tokens   INT,                           -- 【N7】含重试的累计值(非单次)
+    output_tokens  INT,                           -- 【N7】含重试的累计值(非单次)
     latency_ms     INT,
     retry_count    INT NOT NULL DEFAULT 0,        -- 【Q6】重试次数
     error          TEXT,
@@ -133,7 +133,7 @@ CREATE INDEX task_tenant_type_idx ON task (tenant_id, task_type, status);
 CREATE INDEX task_run_idx ON task (tenant_id, run_id);
 ```
 
-> **【Q6】计费口径:** `failed` 任务与每次重试**真实消耗的 token 全部计入用量统计**(成本是真实发生的),`retry_count` 与逐次 token 均落库。是否就失败/重试**向租户收费**属"计费口径",将来单独定义;本期只保证"用量统计"口径完整、可聚合,二者区分写明。【不变量二】
+> **【Q6/N7】计费口径:** `failed` 任务与每次重试**真实消耗的 token 全部计入用量统计**(成本是真实发生的)。**【N7】** `task.input_tokens`/`output_tokens` 存**含重试的累计值**(非单次);若将来需要逐次明细,落 `event` payload,不在 task 上加"逐次"列——不留空头承诺。是否就失败/重试**向租户收费**属"计费口径",将来单独定义;本期只保证"用量统计"口径完整、可聚合,二者区分写明。【不变量二】
 > **【队列=PG】** 任务队列 = 对 task 表 `SELECT ... FOR UPDATE SKIP LOCKED` 取 `pending` 行,不引 Redis。
 > `task_type` 普通列 + `output` JSONB —— 新增任务类型不改表结构。**不建插件/编排框架。**【不变量四"禁止"条款】
 
@@ -162,10 +162,12 @@ CREATE TABLE vocabulary (
     color_kind     TEXT,                          -- color 维专用:'simple'|'compound'
     active         BOOLEAN NOT NULL DEFAULT true,
     vocab_version_id BIGINT NOT NULL REFERENCES vocabulary_version(vocab_version_id),
-    UNIQUE (tenant_id, dimension, concept_key, vocab_version_id),
-    -- 【A-4】labels 的 zh 词形在(租户,维度,同一版本)内唯一,否则模型输出词形→concept_key 反查歧义
-    UNIQUE (tenant_id, dimension, vocab_version_id, (labels->>'zh'))
+    UNIQUE (tenant_id, dimension, concept_key, vocab_version_id)
 );
+-- 【N9】表达式唯一约束必须用 CREATE UNIQUE INDEX(PG 表内 UNIQUE 约束不支持表达式):
+-- 【A-4】labels 的 zh 词形在(租户,维度,同一版本)内唯一,否则模型输出词形→concept_key 反查歧义
+CREATE UNIQUE INDEX vocabulary_zh_uq
+    ON vocabulary (tenant_id, dimension, vocab_version_id, (labels->>'zh'));
 
 -- 输出归一化:模型输出的中文别名词形 → concept_key。按维度分区,迁移自旧 alias_map.yaml
 CREATE TABLE alias_map (
@@ -181,7 +183,8 @@ CREATE TABLE alias_map (
 ```
 
 > **【A-2】** `alias_map` 从"别名→中文标准词形"改为"别名词形→concept_key"。例:`气球花盒 → flowerbox`(不再是 `气球花盒 → 花盒`)。migration §1.3 迁移动作同步改。
-> **【A-4】归一化解析链(落库口径):** 模型按 prompt 注入的 zh 词表输出**中文词形** → 先查 `alias_map`(别名→concept_key),未命中再查当期 `vocabulary.labels.zh`(词形→concept_key)→ 命中则 `tag.value` 落 concept_key;**模型原始输出完整保留在 `task.output`**。两处都查不到走【A-6】失败路径(architecture §3.3,提案待批)。
+> **【A-4】归一化解析链(落库口径):** 模型按 prompt 注入的 zh 词表输出**中文词形** → 先查 `alias_map`(别名→concept_key),未命中再查当期 `vocabulary.labels.zh`(词形→concept_key)→ 命中则 `tag.value` 落 concept_key;**模型原始输出完整保留在 `task.output`**。两处都查不到走【A-6/裁决五】失败路径(status='unresolved',见 §3.5 与 architecture §3.3)。
+> **【N12】alias_map 无版本维、concept_key 需存在于当期词表版本:** 概念下线后,老 alias 可能指向已不在当期版本的 concept_key。故**归一化解析**与**回流写入**各补一条校验——`concept_key` 必须存在于当期 `vocabulary_version` 且 `active=true`,否则:解析侧按【A-6】失败路径(unresolved)处理;回流写入侧拒绝并交人工裁决。
 
 ### 3.5 tag — 标签溯源完整 + status + role 【不变量二 / C1 / C2 / 裁决二】
 
@@ -194,17 +197,18 @@ CREATE TABLE tag (
 
     dimension      TEXT NOT NULL,                 -- 'theme'|'color'|'structure'|'scene'|'color_scheme'
     -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'column'/'red');
-    --           theme 与 color_scheme 维为自由文本(模型自由生成,不受词表约束)
+    --           theme 与 color_scheme 维为自由文本(模型自由生成,不受词表约束);
+    --           【A-6/裁决五】unresolved 标签的 value 例外存"裸原词形"(反查失败,待人工归类)
     value          TEXT NOT NULL,
-    role           TEXT,                          -- 【裁决二】仅 dimension='color' 时取 'primary'|'accent';其余维必须为空
-    -- 【C1】status:active 参与检索;removed 为人工删除的错标,行与溯源永久保留、退出检索
-    status         TEXT NOT NULL DEFAULT 'active',                -- 'active'|'removed'
+    role           TEXT,                          -- 【裁决二/N2】仅 color 维取 'primary'|'accent';其余维必须为空(双向 CHECK)
+    -- 【N1/裁决五】status 四值枚举 + 值域 CHECK
+    status         TEXT NOT NULL DEFAULT 'active',                -- 'active'|'removed'|'superseded'|'unresolved'
 
     -- ── 溯源五问 ────────────────────────────────
     source         TEXT NOT NULL,                 -- 'model'|'human'
     model_id       TEXT,                          -- 'qwen-vl-max'(含版本)
     prompt_version TEXT,                           -- 提示词版本(内容锚见 config_version,Q2)
-    vocab_version_id BIGINT REFERENCES vocabulary_version(vocab_version_id),
+    vocab_version_id BIGINT REFERENCES vocabulary_version(vocab_version_id),  -- 【N11】human 补受约束维标签也记(审核员选自某版词表 UI)
     config_version_id BIGINT REFERENCES config_version(config_version_id),
     run_id         TEXT,
     input_hash     TEXT,                           -- = asset.content_hash 快照
@@ -212,13 +216,19 @@ CREATE TABLE tag (
     output_tokens  INT,
     confidence     NUMERIC(4,3),
     needs_review   BOOLEAN NOT NULL DEFAULT false,
-    current_correction_id BIGINT,                  -- 最新修正指针;NULL=未被修正
+    current_correction_id BIGINT,                  -- 【N8】最新修正指针;不设 DB 外键(与 tag_correction 环形),由应用层唯一写入路径维护;如需强约束可改 DEFERRABLE FK
     created_at     timestamptz NOT NULL DEFAULT now(),
 
     FOREIGN KEY (asset_id, tenant_id) REFERENCES asset(asset_id, tenant_id),  -- 【加固1】复合外键
 
-    -- 【裁决二】role 仅 color 维可非空
-    CONSTRAINT tag_role_only_color CHECK (role IS NULL OR dimension = 'color'),
+    -- 【N6】承重枚举值域 CHECK
+    CONSTRAINT tag_status_vals CHECK (status IN ('active','removed','superseded','unresolved')),
+    CONSTRAINT tag_source_vals CHECK (source IN ('model','human')),
+    -- 【N2】role 双向收紧:color 维必选 primary/accent,非 color 维必须为空——杜绝 role=NULL 的 color 标签在默认主色检索下隐身
+    CONSTRAINT tag_role_shape CHECK (
+        (dimension = 'color'  AND role IN ('primary','accent')) OR
+        (dimension <> 'color' AND role IS NULL)
+    ),
     -- 【C3】溯源按 source 分级强制:model 来源必须溯源齐全;human 补标签天然无模型溯源
     CONSTRAINT tag_provenance_by_source CHECK (
         source <> 'model' OR (
@@ -232,11 +242,15 @@ CREATE INDEX tag_filter_idx   ON tag (tenant_id, dimension, value) WHERE status 
 CREATE INDEX tag_color_role_idx ON tag (tenant_id, value) WHERE dimension='color' AND status='active';
 CREATE INDEX tag_asset_idx    ON tag (tenant_id, asset_id);
 CREATE INDEX tag_vocabver_idx ON tag (tenant_id, vocab_version_id);  -- 词表升级定位
+CREATE INDEX tag_review_idx   ON tag (tenant_id, dimension) WHERE status='unresolved';  -- 复核队列默认含 unresolved
 ```
 
 > **【C2/A-1】** `value` 存 concept_key(受约束维度)或自由文本(theme/color_scheme)。展示词形一律经 `vocabulary.labels` 翻译;改词形("立柱"→"圆柱")= 纯词表编辑,零标签重写、零重打。
-> **【C1】status + human 补标签:** 删错标 = `status='removed'`(不 DELETE,原始值不销毁);补漏标 = 新增 `source='human'` 行、模型溯源列为空(CHECK 放行),不走修正链。检索一律 `status='active'`。
-> **【裁决二】role + color_scheme:** color 维带 `role`;`scheme_name`(如"红金")落 `dimension='color_scheme'` 自由文本,与 color 单色维互补、不混算。
+> **【N1/裁决五】status 四态语义:** `active` 参与检索;`removed` 人工删的错标;`superseded` 被重打新版取代的旧标签;`unresolved` 反查失败待人工归类。**检索一律只查 `active`;其余三态原行与溯源永久保留**,是不变量二的完整形态。
+> **`superseded` 触发(收敛机制,N1 核心):** 重打批次**人工验收通过后**,系统对同 `(asset_id, dimension)` 且 `vocab_version` 早于本批的 `active` 标签**批量置 `superseded`**,落 `tag_correction`(`kind='supersede'`, `source='model'`)+ event。此前旧标签维持 `active`、与新标签并存(供验收对比);验收通过才收敛。这样重打既不双计(同值)也不让旧错值继续命中(异值)。
+> **【A-6/裁决五】unresolved(反查失败落库):** 模型词形在 alias/词表都查不到 → `value` 存**裸原词形**(无 `raw:` 前缀:concept_key 强制 ASCII,中文词形天然不冒充概念键)、`status='unresolved'`、`needs_review=true`,进复核队列。**闭环强制:** 人工补 alias/扩词表后走修正链转正——`kind='update'`(old=原词形, new=concept_key)+ status 迁回 `active`;判为垃圾则 `kind='remove'`。unresolved 不允许滞留,复核队列视图默认包含它。
+> **【C1】删错标 / 补漏标:** 删错标 = `status='removed'`(不 DELETE);补漏标 = 新增 `source='human'` 行、模型溯源列可空(CHECK 放行),不走修正链;human 补受约束维标签仍记 `vocab_version_id`【N11】(缩小查询②"待归类"桶)。
+> **【裁决二】role + color_scheme:** color 维带 `role`(必选);`scheme_name`(如"红金")落 `dimension='color_scheme'` 自由文本,与 color 单色维互补、不混算。
 
 ### 3.6 tag_correction — 修正链(只增,update/remove/restore)【C1 / 不变量二、五】
 
@@ -245,24 +259,28 @@ CREATE TABLE tag_correction (
     correction_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     tag_id         BIGINT NOT NULL REFERENCES tag(tag_id),
-    kind           TEXT NOT NULL,                 -- 【C1】'update'|'remove'|'restore'
-    old_value      TEXT,                          -- 【C1】可空:remove/restore 时可空
-    new_value      TEXT,                          -- 【C1】可空:remove 时为空
-    source         TEXT NOT NULL DEFAULT 'human', -- human|model(重打)
+    kind           TEXT NOT NULL,                 -- 【C1/裁决五】'update'|'remove'|'restore'|'supersede'
+    old_value      TEXT,                          -- update/remove 非空;restore/supersede 可空(见 CHECK)
+    new_value      TEXT,                          -- update 非空;remove/restore/supersede 为空
+    source         TEXT NOT NULL DEFAULT 'human', -- human|model(重打/supersede)
     corrected_by   BIGINT REFERENCES app_user(user_id),
     corrected_at   timestamptz NOT NULL DEFAULT now(),
     reason         TEXT,
-    -- 【C1】按 kind 约束值的有无:改值两值齐全;删标无新值;恢复无值(仅状态迁回)
+    -- 【N6】kind 值域
+    CONSTRAINT correction_kind_vals CHECK (kind IN ('update','remove','restore','supersede')),
+    -- 【C1/N4】按 kind 约束值:改值两值齐全;删标强制记删除时当前值(old 非空)、无新值;恢复/取代不改 value(两值皆空)
     CONSTRAINT correction_shape CHECK (
-        (kind='update'  AND old_value IS NOT NULL AND new_value IS NOT NULL) OR
-        (kind='remove'  AND new_value IS NULL) OR
-        (kind='restore')
+        (kind='update'    AND old_value IS NOT NULL AND new_value IS NOT NULL) OR
+        (kind='remove'    AND old_value IS NOT NULL AND new_value IS NULL) OR
+        (kind='restore'   AND old_value IS NULL AND new_value IS NULL) OR
+        (kind='supersede' AND old_value IS NULL AND new_value IS NULL)
     )
 );
 CREATE INDEX tag_correction_tag_idx ON tag_correction (tenant_id, tag_id, corrected_at);
 ```
 
-> 只增不改不删:一条 tag 的多次修正 = 多行,按 `corrected_at` 排即完整履历。原始模型值 = 该 tag 最早一行 `update` 的 `old_value`(从未修正时 = `tag.value`)。修正回流(sync_corrections)的 diff 基准即此。【不变量二、五】
+> 只增不改不删:一条 tag 的多次修正 = 多行,按 `corrected_at` 排即完整履历。
+> **【N4】原始值完整口径:** 原始值 = 该 tag **最早一行 `update` 的 `old_value`**;**无 `update` 记录时 = `tag.value`**(`remove` / `supersede` 均不改 `value`,故原始值恒可恢复)。走查场景 1(只被 remove 过的标签)据此自洽:其原始值就安然在 `tag.value` 里。修正回流(sync_corrections)的 diff 基准即此。【不变量二、五】
 > **补标签不入本表**(它是新增 tag 行,不是对已有 tag 的修正),仅落 event。【C1 改法3】
 
 ### 3.7 config_version — 配置版本快照(含 prompt 内容锚)【不变量二 / Q2】
@@ -272,7 +290,10 @@ CREATE TABLE config_version (
     config_version_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     scope          TEXT NOT NULL,                 -- 'tagging'|'review'|...
-    payload        JSONB NOT NULL,                -- 快照:{model,temperature,few_shot,image_max_edge,review_threshold,...}
+    -- 【N3】payload 显式携带各维锁定的词表版本,如:
+    --   {model,temperature,few_shot,image_max_edge,review_threshold,
+    --    "vocab_versions":{"structure":140,"color":102,"scene":103}}
+    payload        JSONB NOT NULL,
     prompt_version TEXT,                           -- 【Q2】对应的提示词版本号
     prompt_sha256  TEXT,                           -- 【Q2】提示词本体内容 hash,锚定"在什么规则下打的"
     created_by     BIGINT REFERENCES app_user(user_id),
@@ -280,6 +301,7 @@ CREATE TABLE config_version (
 );
 ```
 
+> **【N3】词表版本绑定点:** worker 注入 prompt 用的词表版本,**取自 `config_version.payload.vocab_versions`,批次创建时锁定、批次内不变**——不读运行时"当前最新版"。否则批次中途一次词表编辑会让同一 `run_id` 的标签溯源到不同版本,污染查询②的定位。`tag.vocab_version_id` 是这次锁定值的落地结果(走查场景 2 "config 引用 vocab_ver=140" 即指此字段)。architecture §3.3 批量执行段同步补一句。
 > **【Q2】提示词内容锚 + 双保险纪律:** `prompt_version` 仅是字符串,同版本号下改文件会让溯源失真。故 ① `config_version` 记 `prompt_sha256`(提示词本体内容 hash);② 立纪律:**提示词文件按版本号命名、只增不改**(改内容 = 升版本号),迁移见 migration §1.1。标签经 `config_version_id` 关联到确切的 prompt 内容。
 > 生产打标配置(`qwen-vl-max`/无 few-shot/`temperature=0`/`image_max_edge=1568`)为首个 `tagging` scope payload,迁移自旧项目锁定配置。
 
@@ -304,12 +326,14 @@ CREATE TABLE event (
 );
 CREATE INDEX event_tenant_time_idx ON event (tenant_id, occurred_at);
 CREATE INDEX event_audit_idx ON event (tenant_id, occurred_at) WHERE sensitive;
--- 【加固2】只增落到 DDL(非注释):迁移脚本执行 REVOKE UPDATE, DELETE ON event FROM <app_role>;
+-- 【加固2/N10】只增落到 DDL(非注释):迁移脚本对全部"只增"表回收改删权限:
+--   REVOKE UPDATE, DELETE ON event, tag_correction, vocabulary_version, config_version FROM <app_role>;
 ```
 
 > **【C6】** `actor_kind` 去掉默认值 + CHECK:杜绝"human 行为但无行为人"的脏事件——原设计 `DEFAULT 'human'` 把最常见的遗漏方向变成违宪方向,现由 CHECK 兜底。【不变量五 — 带行为人】
 > **【Q7】** `sensitive` 由唯一写入函数 `record_event()` 按 `event_type→bool` 集中映射推导(见 architecture §3.6),不散在调用点手填。
-> **【加固2】** "权限层回收 UPDATE/DELETE" 写成实际 `REVOKE` 语句进迁移脚本,不停留在注释。审计视图 = `WHERE sensitive`;用量计费 = 从 task/tag 的 token 聚合,均不另建系统。【不变量二、五】
+> **【N5】平台级跨租户审计事件落 `tenant_id=0`:** 查询③的平台侧聚合(C5)落的 `sensitive=true` 审计事件,因 `event.tenant_id NOT NULL`,统一记到平台保留号 `tenant_id=0`(该号正为此类平台级记录而设)。
+> **【加固2/N10】** "权限层回收 UPDATE/DELETE" 写成实际 `REVOKE` 语句进迁移脚本;§1 全表清单里自称"只增"的四张表(event / tag_correction / vocabulary_version / config_version)**一并回收改删权限**,只增承诺全部升级为 DDL 级。审计视图 = `WHERE sensitive`;用量计费 = 从 task/tag 的 token 聚合,均不另建系统。【不变量二、五】
 
 ### 3.9 selection / export_job
 

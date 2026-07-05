@@ -1,7 +1,7 @@
 # balloon-platform 场景端到端走查
 
-> 状态:**R01 返修新增交付**,对应《裁决记录》裁决三。
-> 目的:矩阵证明"想到了",走查证明"接得住"。以下三场景逐一给出**每张表的前后行状态**,用真实字段值书写(数据虚构,字段不虚构)。口径与 [data-model.md](./data-model.md) v2、[migration.md](./migration.md) §1.2【A-3】concept_key 一致。
+> 状态:**R02 二审返修稿(v3)**,对应《裁决记录》裁决三;v2 基础上按 N1(场景2 supersede 收敛)、N3(config 锁定词表版本)、N4(场景1 原始值口径)返修。
+> 目的:矩阵证明"想到了",走查证明"接得住"。以下三场景逐一给出**每张表的前后行状态**,用真实字段值书写(数据虚构,字段不虚构)。口径与 [data-model.md](./data-model.md) v3、[migration.md](./migration.md) §1.2【A-3 定稿】concept_key 一致。
 >
 > **公共背景(三场景共用):**
 > - 租户:`tenant_id=1`(示例客户,slug=`demo_tenant`);平台保留 `tenant_id=0`。
@@ -65,7 +65,8 @@ SELECT 1 FROM tag t WHERE t.tenant_id=1 AND t.asset_id=1001
 
 ### sync_corrections 扫描如何分类为 REMOVED
 
-回流 diff 直接读 `tag.status`:`tag_id=9002` 现为 `removed`,原始值 `arch`(来自 correction 7001 的 old_value),当前 active 值集合里无对应替代 → 归类 **REMOVED**(migration §2.2【C1 对齐】)。删标未销毁原值,回流可稳定复现该分类。
+回流 diff 直接读 `tag.status`:`tag_id=9002` 现为 `removed`,当前 active 值集合里无对应替代 → 归类 **REMOVED**(migration §2.2【C1 对齐】)。
+> **【N4】原始值口径自洽:** 9002 只被 `remove` 过、从无 `update`,故其**原始值 = `tag.value` = `arch`**(remove 不改 value);同时 correction 7001 的 `old_value='arch'`(N4 收紧后 remove 强制记删除时当前值)。两处一致——data-model §3.6 "原始值 = 最早一行 update 的 old_value;无 update 时 = tag.value" 完整覆盖此例,不再两文各说半句。删标未销毁原值,回流可稳定复现该分类。
 
 ---
 
@@ -102,22 +103,35 @@ WHERE t.tenant_id=1 AND t.dimension='structure' AND t.status='active'
 
 **【C4-2】待人工归类清单(单独输出):** `vocab_version_id IS NULL` 的 structure 标签 → 本例为空;若存在 human 补的背景墙标签(无 vocab_ver),会在此单列,不被静默吞掉。
 
-### 新 task 批次 + 老标签保留不覆盖的证据
+### 新 task 批次 + 老标签保留 + 验收后 superseded 收敛【N1/裁决五】
 
-对命中的 `asset_1001` 生成重打任务:
+对命中的 `asset_1001` 生成重打任务。**【N3】词表版本经 config 锁定**:`config_version_id=202` 的 `payload.vocab_versions.structure=140`,批次内不变——这就是"config 引用 vocab_ver=140"的落点。
 
 | task_id | task_type | asset_id | run_id | config_version_id | 说明 |
 |---|---|---|---|---|---|
-| 3050 | tagging | 1001 | `retag_structure_v2_20260706` | 202(引用 vocab_ver=140) | 用 v2 词表重打 |
+| 3050 | tagging | 1001 | `retag_structure_v2_20260706` | 202(payload.vocab_versions.structure=140) | 用 v2 词表重打 |
 
-重打**新增** tag 行,**不 UPDATE/DELETE 老行**:
+**阶段一 · 验收前(新老并存,供人工对比):** 重打**新增** tag 行,**不 UPDATE/DELETE 老行**:
 
 | tag_id | value | status | vocab_ver | run_id | 说明 |
 |---|---|---|---|---|---|
-| 9001 | `column` | active | **101** | init_20260705 | **老标签原样保留**(历史可追,证据) |
-| 9101 | `column` | active | **140** | retag_structure_v2_20260706 | 新打标(v2 版本) |
+| 9001 | `column` | active | **101** | init_20260705 | 老标签原样保留(v1) |
+| 9101 | `column` | active | **140** | retag_structure_v2_20260706 | 新打标(v2) |
 
-> 老标签 9001 的 `status/value/vocab_version_id` 全未变 = "不覆盖"的直接证据。新老并存后的去重/收敛(是否将 9001 标 superseded)属复核队列的运营决策,不在数据层强删——原始值永久可追。【不变量二】
+**阶段二 · 人工验收通过后(系统自动收敛)【N1】:** 系统对同 `(asset_id=1001, dimension=structure)` 且 vocab_version 早于本批的 active 标签(9001)批量置 `superseded`:
+
+| tag_id | value | status | current_correction_id | 说明 |
+|---|---|---|---|---|
+| 9001 | `column` | **superseded** | 7010 | 退出检索,原行/value/溯源永久保留 |
+| 9101 | `column` | active | ∅ | 现役 |
+
+**tag_correction** 新增(只增,source=model):
+
+| correction_id | tag_id | kind | old_value | new_value | source | corrected_at |
+|---|---|---|---|---|---|---|
+| 7010 | 9001 | `supersede` | ∅ | ∅ | model | 2026-07-06T10:00Z |
+
+> CHECK `correction_shape` 放行:`kind='supersede'` 要求两值皆空 ✅(supersede 不改 value,故 9001 原始值 `column` 恒在 `tag.value`)。**event** 落一条 `config_change`/`correction`(actor_kind=system)。检索只查 `active` → 只命中 9101,**同值不双计、异值不让旧值继续命中**,重打目的完整达成。这补齐了 R01 走查暴露、二审 N1 指出的收敛机制空洞。【不变量二】
 
 ---
 
@@ -149,7 +163,7 @@ WHERE t.tenant_id=1 AND t.dimension='structure' AND t.status='active'
 
 > concept_key 是跨租户可复用的稳定键;`vocabulary` 行按 tenant_id=2 各插一份(labels.zh 相同,但版本与 vocab_id 独立)。租户间词表演化互不干扰。
 
-**config_version** — 1 行:`config_version_id=210, tenant_id=2, scope=tagging, payload={qwen-vl-max, few_shot:false, temperature:0…}, prompt_version=tagging_v2, prompt_sha256=9f8e…`(生产配置可共用同一提示词内容)。
+**config_version** — 1 行:`config_version_id=210, tenant_id=2, scope=tagging, payload={qwen-vl-max, few_shot:false, temperature:0, vocab_versions:{structure:300,color:301,scene:302}…}, prompt_version=tagging_v2, prompt_sha256=9f8e…`(提示词内容共用;`vocab_versions` 锁定租户 2 自己的种子版本【N3】)。
 
 **event** — 每步各 1 条(tenant_id=2,actor=平台侧种子脚本):租户创建、用户创建、词表种子、配置创建。
 

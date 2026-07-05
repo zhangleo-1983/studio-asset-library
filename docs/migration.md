@@ -1,6 +1,6 @@
 # balloon-platform 旧资产迁移清单
 
-> 状态:**R01 返修稿(v2),待二审**。按评审 C7/A-2/A-3/Q2/Q4 与裁决一(方案 A)返修;每处修改标注清单编号。
+> 状态:**R02 二审返修稿(v3),待差量核销**。v2 基础上按裁决四(A-3 冻结、scene 改 2 键)、N3(词表版本锁定)、N10(REVOKE 扩表)与场景3小注(种子脚本参数化)返修。
 > 来源:旧项目 `balloon-tagging-eval`(已退役为资产库,不再开发)。
 > 原则:迁移只搬**已验证的资产与结论**,不搬旧项目的临时脚本与一次性 run 产物。目标结构见 [data-model.md](./data-model.md)。
 
@@ -32,9 +32,9 @@
 - 多语言:`labels` 本期只填 `zh`,结构留位 `en` 等。【不变量三 — 留位不实现】
 - scene 枚举(`生日宴/寿宴/宝宝宴/商场美陈/校园活动/开业/婚礼/其他`)旧项目写死在 schema+prompt,新平台**也迁成 `vocabulary` dimension=scene**,消除旧项目"scene 改词表要动两个地方"的痛点(见旧 sync_corrections 对 scene 的特殊处理)。
 
-#### 【A-3 · 提案待批】concept_key 命名(color 17 条 + scene 8 条)
+#### 【A-3 · 定稿冻结(裁决四已批准)】concept_key 命名(structure 3 + color 17 + scene 8)
 
-按裁决一方案 A,`tag.value` 存 concept_key,故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。以下为 Code 提案,随返修稿上交确认。命名原则:小写英文、复合色用下划线、语义直译、避免歧义。
+按裁决一方案 A,`tag.value` 存 concept_key,故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。**裁决四(2026-07-05):批准 26 条,改 2 条(scene 的宝宝宴、开业),批准即冻结。** 命名原则:小写英文、复合色用下划线、语义直译、避免歧义。**自此全部 concept_key 不得再改,后续改中文词形只动 `vocabulary.labels.zh`。**
 
 **structure(3 条,已在上表):**
 
@@ -72,14 +72,15 @@
 |---|---|
 | 生日宴 | `birthday` |
 | 寿宴 | `longevity_feast` |
-| 宝宝宴 | `baby_shower` |
+| 宝宝宴 | `baby_banquet` |
 | 商场美陈 | `mall_display` |
 | 校园活动 | `campus_event` |
-| 开业 | `opening` |
+| 开业 | `grand_opening` |
 | 婚礼 | `wedding` |
 | 其他 | `other` |
 
-> 说明:concept_key 一经确认即冻结,后续改中文词形("立柱"→"圆柱")只改 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。theme 维不入此表(自由文本,无 concept_key)。【A-3 提案待批】
+> **【裁决四改名 2 处】** 宝宝宴 `baby_shower → baby_banquet`(baby shower 是产前送礼会,宝宝宴是产后满月/百日/周岁宴,语义错位,冻结前纠正);开业 `opening → grand_opening`(opening 过泛,grand_opening 精确)。
+> 说明:concept_key 已冻结,后续改中文词形("立柱"→"圆柱")只改 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。theme 维不入此表(自由文本,无 concept_key)。【A-3 定稿】
 
 ### 1.3 alias_map → `alias_map` 表 【A-2】
 
@@ -105,7 +106,7 @@
 }
 ```
 
-其中 `config_version` 行同时写入 `prompt_version='tagging_v2'` 与该提示词本体的 `prompt_sha256`【Q2】,作为标签"在什么规则下打的"的内容锚。
+其中 `config_version` 行同时写入 `prompt_version='tagging_v2'` 与该提示词本体的 `prompt_sha256`【Q2】,作为标签"在什么规则下打的"的内容锚;并在 `payload.vocab_versions` 内锁定各维词表版本(首个配置绑定 structure/color/scene 的 v1 种子)【N3】,批次内不变。
 
 - **硬约束(迁移纪律):** few-shot 保持关闭。旧项目 `CLAUDE.md` 明确"不要为了试试看重开 few-shot",重开需先满足 `prompts/fewshot/README.md` 的重开条件。新平台默认无 few-shot。
 - Gemini 配置仅作"能力上限对照"留档,不进生产 `config_version`。
@@ -194,7 +195,8 @@ NAS 扫描 ──→ 内容 hash(sha256) ──→ 去重判定 ──→ 上传
 
 ## 4. 迁移执行顺序(评审通过后)
 
-- **步骤 0(种子数据,先于一切)【C7】:** 建库迁移脚本内固化 **`tenant_id=0`(平台公共库保留号)**;再种子写入**首个租户示例客户**(`tenant`)与**初始管理用户**(`app_user`,词表 `created_by` 引用它),各落一条 `event`。**必须先于步骤 1**——否则 `vocabulary.tenant_id` / `vocabulary_version.created_by` 的外键在第一步即报错(评审 C7 指出的依赖倒挂)。同一脚本内执行 **`REVOKE UPDATE, DELETE ON event`**【加固2】。
+- **步骤 0(种子数据,先于一切)【C7】:** 建库迁移脚本内固化 **`tenant_id=0`(平台公共库保留号)**;再种子写入**首个租户示例客户**(`tenant`)与**初始管理用户**(`app_user`,词表 `created_by` 引用它),各落一条 `event`。**必须先于步骤 1**——否则 `vocabulary.tenant_id` / `vocabulary_version.created_by` 的外键在第一步即报错(评审 C7 指出的依赖倒挂)。同一脚本内执行 **`REVOKE UPDATE, DELETE`** 覆盖全部只增表(event / tag_correction / vocabulary_version / config_version)【加固2/N10】。
+  - **【R02 场景3 小注】种子脚本参数化:** 该"建租户 + 建初始用户 + 词表种子 + 配置"逻辑写成**接受任意 `tenant_id` 的可重放脚本**(示例客户只是首次调用),第二个租户接入即以新 tenant 参数**重放同一脚本**——兑现场景 3 走查所称的"步骤 0 租户级重放",零业务代码改动。
 1. 迁移 §1.2/§1.3/§1.4 词表·alias·配置(小、可先行、可校对)。
 2. 迁移 §1.1 提示词 + §1.5/§1.6 schema 与兜底函数,打通单张打标闭环。
 3. NAS 核数 → §3 存量图分批上云 + 去重入库。
