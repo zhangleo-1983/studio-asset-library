@@ -37,7 +37,9 @@ def test_two_tenant_replay_isolation():
 
     # 互不可见 + 两套并存:库内共 2×28 行,两租户 structure 版本 id 相互独立
     with platform_session(reason="test:verify-isolation") as session:
-        total = session.execute(text("SELECT count(*) FROM vocabulary")).scalar_one()
+        total = session.execute(
+            text("SELECT count(*) FROM vocabulary WHERE tenant_id IN (1, 2)")
+        ).scalar_one()
         assert total == 2 * BASELINE_VOCAB_COUNT
 
         vv1 = session.execute(

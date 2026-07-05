@@ -20,6 +20,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.active_config import activate_config
 from app.db import platform_session
 from app.events import record_event
 from app.seed_data import (
@@ -213,6 +214,12 @@ def seed_tenant(
         }
         config_id = _insert_config_version(
             session, tenant_id, admin_id, payload, prompt_version, prompt_sha256
+        )
+        # 5b) 保存配置即自动推"当前生效配置"指针(效率模式,无审批)【OQ-1/裁决七】。
+        #     经唯一函数 activate_config,内含 config_activate 事件(sensitive=true, from=None→to)。
+        activate_config(
+            session, tenant_id=tenant_id, scope="tagging",
+            config_version_id=config_id, actor_kind="system",
         )
 
         # 6) 各步 event(经 record_event 唯一写入路径;平台侧种子 actor_kind='system')

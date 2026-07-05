@@ -5,7 +5,22 @@
 
 ---
 
-## OQ-1 「当前生效配置」的选取规则未定义 —— 打标闭环阶段必须先定
+## OQ-1 「当前生效配置」的选取规则未定义 —— ✅ 已关闭(裁决七,张亮 2026-07-05)
+
+> **裁决七(2026-07-05 书面确认,按变更纪律归档):采纳方案二(显式生效指针)**;方案一(取最新
+> `created_at`)、方案三(config_version 加 active 列)否决。落点:
+> - DDL:新增小表 `active_config`(PK `(tenant_id, scope)`,唯一 `config_version_id` FK),alembic `0002`。
+>   data-model.md §3.10【OQ-1/裁决七】。
+> - 唯一推指针函数 `app/active_config.py::activate_config`:UPDATE 指针 + 必落 `config_activate` 事件
+>   (`sensitive=true`,payload 带 `from`/`to`);回滚 = 指针回拨,事件可辨识。
+> - `config_activate` 已入 `record_event` 的 sensitive 集中映射。
+> - 当期配置/当期词表版本一律经 `current_config_version_id()` 解析;禁止取最新 `created_at`、禁止硬编码。
+> - 本期产品口径:保存配置后系统自动推指针(效率模式,无审批);种子已在建配置后自动激活。
+> - roadmap 二期候选:「质量模式开关 + 租户内审批流」,留位方式 = 本指针机制。
+>
+> 以下为裁决前的原始记账,存档。
+
+### 原始记账（存档）
 
 **背景:** `config_version` 是只增表(迁移已 `REVOKE UPDATE, DELETE`,实测生效)。种子写入首行
 生产配置后,提示词/词表升级都以**新增一行 config_version**的方式演进,老行作为历史溯源锚点

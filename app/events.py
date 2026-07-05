@@ -17,9 +17,10 @@ from sqlalchemy.orm import Session
 # correction(含 supersede 子类)→ false;其余默认 false。
 _SENSITIVE_EVENT_TYPES: frozenset[str] = frozenset(
     {
-        "export",         # 数据导出
-        "delete",         # 删除
-        "config_change",  # 配置/词表变更
+        "export",           # 数据导出
+        "delete",           # 删除
+        "config_change",    # 配置/词表变更
+        "config_activate",  # 推"当前生效配置"指针【OQ-1/裁决七】
     }
 )
 

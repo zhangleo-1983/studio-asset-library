@@ -369,6 +369,33 @@ CREATE TABLE export_job (
 );
 ```
 
+### 3.10 active_config — 当前生效配置指针 【OQ-1/裁决七】
+
+```sql
+-- 【裁决七 · 方案二(显式生效指针)】(tenant_id, scope) → 当前生效的 config_version。
+-- 本表**非只增**:它是"当前状态",可 UPDATE(推指针);履历不落本表,落 event。
+CREATE TABLE active_config (
+    tenant_id         BIGINT NOT NULL REFERENCES tenant(tenant_id),
+    scope             TEXT   NOT NULL,               -- 'tagging'|'review'|...(与 config_version.scope 对齐)
+    config_version_id BIGINT NOT NULL REFERENCES config_version(config_version_id),
+    updated_at        timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, scope),                  -- 每(租户,scope)至多一行当前生效
+    UNIQUE (config_version_id)                       -- 一个 config_version 至多被一处指向
+);
+```
+
+> **【OQ-1/裁决七 · 张亮 2026-07-05 书面确认】** 采纳方案二(显式生效指针);方案一(取最新
+> `created_at`)、方案三(config_version 加 active 列)否决——前者回滚形态残缺、无法承载未来审批,
+> 后者违反 config_version 只增 + REVOKE。
+> **推指针 = UPDATE 本表**,且**必经唯一函数**落 event(`event_type='config_activate'`,
+> `sensitive=true`,payload 带 `from`/`to` config_version_id)——回滚 = 指针回拨,事件可辨识。
+> **当期配置/当期词表版本一律经本表解析**:worker 与【A-4】归一化解析取"当期配置"查 `active_config`,
+> **禁止取最新 `created_at`、禁止硬编码**;词表当期版本沿用当期 config 的 `payload.vocab_versions`
+> (§3.7【N3】),经本指针解析,不另起机制。
+> **本期产品口径:** 保存配置后系统**自动推指针**(效率模式,无审批);"质量模式开关 + 租户内审批流"
+> 登记 roadmap 二期候选,**留位方式 = 本指针机制**,触发条件 = 租户提出配置审批需求。
+> 落地:DDL 走 alembic `0002`;唯一推指针函数见 architecture §3.6 事件段(与 `record_event` 同一收敛纪律)。
+
 ---
 
 ## 4. 三个典型查询走查(按方案 A · concept_key 改写)
