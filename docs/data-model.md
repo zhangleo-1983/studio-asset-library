@@ -274,6 +274,10 @@ CREATE TABLE tag_correction (
         (kind='remove'    AND old_value IS NOT NULL AND new_value IS NULL) OR
         (kind='restore'   AND old_value IS NULL AND new_value IS NULL) OR
         (kind='supersede' AND old_value IS NULL AND new_value IS NULL)
+    ),
+    -- 【R02 核销尾巴】与 event 的 C6 同构:human 修正必须有行为人,修正链自证 who,不靠 event 表担保
+    CONSTRAINT correction_actor_present CHECK (
+        source <> 'human' OR corrected_by IS NOT NULL
     )
 );
 CREATE INDEX tag_correction_tag_idx ON tag_correction (tenant_id, tag_id, corrected_at);

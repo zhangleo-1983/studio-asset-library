@@ -131,7 +131,7 @@ WHERE t.tenant_id=1 AND t.dimension='structure' AND t.status='active'
 |---|---|---|---|---|---|---|
 | 7010 | 9001 | `supersede` | ∅ | ∅ | model | 2026-07-06T10:00Z |
 
-> CHECK `correction_shape` 放行:`kind='supersede'` 要求两值皆空 ✅(supersede 不改 value,故 9001 原始值 `column` 恒在 `tag.value`)。**event** 落一条 `config_change`/`correction`(actor_kind=system)。检索只查 `active` → 只命中 9101,**同值不双计、异值不让旧值继续命中**,重打目的完整达成。这补齐了 R01 走查暴露、二审 N1 指出的收敛机制空洞。【不变量二】
+> CHECK `correction_shape` 放行:`kind='supersede'` 要求两值皆空 ✅(supersede 不改 value,故 9001 原始值 `column` 恒在 `tag.value`)。**event** 落一条 `event_type='correction'`(sensitive=false,由 `record_event` 集中映射推导;actor_kind=system)。检索只查 `active` → 只命中 9101,**同值不双计、异值不让旧值继续命中**,重打目的完整达成。这补齐了 R01 走查暴露、二审 N1 指出的收敛机制空洞。【不变量二】
 
 ---
 
