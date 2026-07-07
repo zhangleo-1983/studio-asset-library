@@ -1,6 +1,8 @@
 # balloon-platform 数据模型草案
 
-> 状态:**R02 二审返修稿(v3),待差量核销**。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
+> 状态:**v3.1(design-freeze-v3 冻结后首次修订)**。修订项:【裁决八】`tag_provenance_by_source`
+> 改按维度双向(自由文本维 theme/color_scheme 的 model 标签 vocab_version_id 必为空)——见 §3.5 /
+> §5 与 alembic `0003`,裁决记录见 [reviews/](../reviews/)。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
 > 本稿在 v2 基础上按《评审意见 R02》N1–N12 与《裁决记录 R02》裁决四(A-3 冻结)、裁决五(A-6+N1 合并:status 四态 + 反查失败落库)返修;R02 新增/变更处标注 N 编号(如【N1】【N4】),沿用编号(如【C1】【A-3】)保留。
 > **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名**已由裁决四批准并冻结**,见 [migration.md](./migration.md) §1.2【A-3 定稿】。
 > DDL 用 PostgreSQL 方言书写,表达结构意图,非最终迁移脚本。命名 snake_case,时间戳一律 `timestamptz`(UTC)。
@@ -229,12 +231,19 @@ CREATE TABLE tag (
         (dimension = 'color'  AND role IN ('primary','accent')) OR
         (dimension <> 'color' AND role IS NULL)
     ),
-    -- 【C3】溯源按 source 分级强制:model 来源必须溯源齐全;human 补标签天然无模型溯源
+    -- 【C3 + 裁决八】溯源按 source 分级强制;vocab_version_id 再按维度双向收紧:
+    --   受约束维(structure/color/scene)model 标签 vocab_version_id 必须非空;
+    --   自由文本维(theme/color_scheme)model 标签 vocab_version_id 必须为空(禁止伪造锚点,仿 N2);
+    --   其余五项溯源(model_id/prompt_version/config_version_id/run_id/input_hash)对全部 model 标签维持强制。
     CONSTRAINT tag_provenance_by_source CHECK (
         source <> 'model' OR (
             model_id IS NOT NULL AND prompt_version IS NOT NULL AND
-            vocab_version_id IS NOT NULL AND config_version_id IS NOT NULL AND
-            run_id IS NOT NULL AND input_hash IS NOT NULL
+            config_version_id IS NOT NULL AND run_id IS NOT NULL AND input_hash IS NOT NULL AND
+            CASE
+                WHEN dimension IN ('structure','color','scene') THEN vocab_version_id IS NOT NULL
+                WHEN dimension IN ('theme','color_scheme')       THEN vocab_version_id IS NULL
+                ELSE false
+            END
         )
     )
 );
@@ -484,7 +493,7 @@ GROUP BY 1 ORDER BY 1;
 
 - 每张业务表首列 `tenant_id` 且入组合索引首位——租户过滤是所有查询前缀。【不变量一】
 - 去重:`asset (tenant_id, content_hash)` 唯一;**【加固1】** `asset (asset_id, tenant_id)` 唯一 + 下游 `(asset_id, tenant_id)` 复合外键,跨租户挂图库层不可能。
-- **【C3】溯源强制用 CHECK 分级,不用列级 NOT NULL:** `tag_provenance_by_source` —— `source='model'` 的标签六项溯源(model_id/prompt_version/vocab_version_id/config_version_id/run_id/input_hash)第一天强制非空;`source='human'` 补的标签天然无模型溯源,CHECK 按 source 放行。**删除原 §6"migrated 放宽"条款**:按 migration §2.3/§3.4,评测 run 产物不入生产库、存量图用生产配置重打溯源写全,根本不存在"会入库的溯源不全迁移标签",放宽对象不存在。
+- **【C3 + 裁决八】溯源强制用 CHECK 分级,不用列级 NOT NULL:** `tag_provenance_by_source` —— `source='model'` 的标签五项溯源(model_id/prompt_version/config_version_id/run_id/input_hash)第一天强制非空;`vocab_version_id` 按维度双向:受约束维(structure/color/scene)必非空、自由文本维(theme/color_scheme)必为空(禁止给自由文本维伪造词表锚点,仿 N2 role 双向)。`source='human'` 补的标签天然无模型溯源,CHECK 按 source 放行。DDL 变更走 alembic `0003`(设计冻结后首次修订,基线 v3→v3.1)。**删除原 §6"migrated 放宽"条款**:按 migration §2.3/§3.4,评测 run 产物不入生产库、存量图用生产配置重打溯源写全,根本不存在"会入库的溯源不全迁移标签",放宽对象不存在。
 - **【C6】** `event` actor CHECK;**【加固2】** `event` 迁移脚本 `REVOKE UPDATE, DELETE`。
 - **【C1】** `tag.status` + `tag_correction.kind` + CHECK 承载改值/删标/补标/恢复四类操作,原始值永不销毁。
 

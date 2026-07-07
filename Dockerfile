@@ -12,8 +12,11 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 RUN pip install --upgrade pip && pip install -e .
 
-# alembic 配置与迁移随源码 COPY(app/migrations 已在 app 内)
+# alembic 配置、迁移、知识资产与脚本(prompt 原文按路径加载,须随镜像)
 COPY alembic.ini ./
+COPY prompts ./prompts
+COPY schema ./schema
+COPY scripts ./scripts
 
 # 默认入口 = api;worker 在 compose 里覆盖 command
 EXPOSE 8000

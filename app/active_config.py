@@ -28,6 +28,32 @@ def current_config_version_id(session: Session, tenant_id: int, scope: str) -> O
     return None if row is None else int(row[0])
 
 
+def current_config(session: Session, tenant_id: int, scope: str) -> Optional[dict]:
+    """取当期生效配置的完整信息(worker/解析取"在什么规则下打"的唯一入口)。
+
+    返回 {config_version_id, payload(dict), prompt_version, prompt_sha256};未激活则 None。
+    """
+    row = session.execute(
+        text(
+            """
+            SELECT cv.config_version_id, cv.payload, cv.prompt_version, cv.prompt_sha256
+            FROM active_config ac
+            JOIN config_version cv ON cv.config_version_id = ac.config_version_id
+            WHERE ac.tenant_id = :tid AND ac.scope = :scope
+            """
+        ),
+        {"tid": tenant_id, "scope": scope},
+    ).first()
+    if row is None:
+        return None
+    return {
+        "config_version_id": int(row[0]),
+        "payload": row[1],
+        "prompt_version": row[2],
+        "prompt_sha256": row[3],
+    }
+
+
 def activate_config(
     session: Session,
     *,

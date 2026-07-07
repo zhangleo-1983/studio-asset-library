@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "balloon_tagging_output_v2",
+  "description": "气球图库检索标签打标输出 Schema(v2:主题/配色/造型/场景四维检索标签,不再拆物料清单)。",
+  "type": "object",
+  "required": ["image_id", "theme", "theme_type", "color_scheme", "structure_types",
+               "scene_guess", "suggested_filename", "confidence", "needs_review", "notes"],
+  "properties": {
+    "image_id": { "type": "string" },
+    "theme": {
+      "type": ["string", "null"],
+      "description": "开放集,模型自由生成(IP 角色名/流行元素名);无特定主题时为 null"
+    },
+    "theme_type": {
+      "type": "string",
+      "enum": ["IP角色", "通用元素", "无主题"],
+      "description": "IP角色(如美乐蒂/蓝精灵)/ 通用元素(如爱心/星星/老虎等泛用图案)/ 无主题(theme=null 时必须选此项)"
+    },
+    "color_scheme": {
+      "type": "object",
+      "required": ["primary", "accent", "scheme_name"],
+      "properties": {
+        "primary": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "主色,优先从 data/vocab/colors.yaml 词表中选取;词表外颜色如实填写"
+        },
+        "accent": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "点缀色,可为空数组"
+        },
+        "scheme_name": {
+          "type": "string",
+          "description": "色系简称,如 粉白 / 红金 / 多巴胺"
+        }
+      }
+    },
+    "structure_types": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "造型类型,多选。优先使用 data/vocab/structure_types.yaml 已知词表(立柱/拱门/花盒);画面中出现词表外的造型如实填写,不要往已知词表上硬套——这些会被汇总进 out_of_vocab 清单供人工确认扩表"
+    },
+    "scene_guess": {
+      "type": "string",
+      "enum": ["生日宴", "寿宴", "宝宝宴", "商场美陈", "校园活动", "开业", "婚礼", "其他"],
+      "description": "仅供参考的场景猜测,不计入可用线判分(标准答案缺失场景维度的 ground truth)"
+    },
+    "suggested_filename": {
+      "type": "string",
+      "description": "模板:{主题}主题{配色}配色{场景}{造型};无主题时省略主题段。需可直接用于批量重命名"
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "needs_review": { "type": "boolean" },
+    "notes": {
+      "type": "string",
+      "description": "画面中的特殊元素备注(手绘工艺/道具/多造型组合等,供检索补充),可为空字符串"
+    }
+  }
+}

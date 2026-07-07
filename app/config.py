@@ -25,16 +25,29 @@ class Settings(BaseSettings):
         description="SQLAlchemy 连接串;compose 内指向 postgres 服务",
     )
 
-    # ── 对象存储(OSS 占位;本期不实现真实上传)【不变量三】────────
+    # ── 对象存储 ───────────────────────────────────────────────
+    # backend: 'local'(开发/CI,字节落盘)| 'oss'(生产占位)。业务层只见 asset_id【不变量三】。
+    storage_backend: str = Field(default="local", description="local|oss")
+    local_storage_root: str = Field(
+        default="/tmp/balloon-storage",
+        description="local backend 的落盘根目录;key 规则仍是 {tenant}/{asset}/...",
+    )
     oss_endpoint: str = Field(default="", description="OSS endpoint,占位")
     oss_bucket: str = Field(default="", description="OSS bucket,占位")
     oss_access_key_id: str = Field(default="", description="占位")
     oss_access_key_secret: str = Field(default="", description="占位")
 
-    # ── 打标复核阈值(留位;本期不跑打标)────────────────────────
+    # ── 打标引擎(Qwen-VL,OpenAI 兼容)。密钥只从环境变量取,不入库不入代码 ──
+    dashscope_api_key: str = Field(default="", description="百炼 DASHSCOPE_API_KEY;CI 不设(全 mock)")
+    qwen_base_url: str = Field(
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        description="OpenAI 兼容 endpoint",
+    )
+
+    # ── 打标复核阈值兜底(权威值在当期 config_version.payload.review_threshold)────
     review_confidence_threshold: float = Field(
         default=0.6,
-        description="低置信度进复核队列的阈值(租户级配置的默认值,留位)",
+        description="复核阈值兜底默认;正式取值经 active_config 读 payload.review_threshold",
     )
 
 

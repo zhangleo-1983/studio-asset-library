@@ -53,7 +53,10 @@ jobs:
           # 幂等重放应跳过
           balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
 
-      - name: 集成测试(两条:无租户上下文拒绝 / 双 tenant 重放隔离)
+      - name: 一键闭环演示(mock provider,无密钥):上传→打标→落 tag→复核→修正
+        run: python scripts/demo_loop.py
+
+      - name: 集成测试(骨架 + 打标闭环;provider 全程 mock)
         run: pytest -q
 
   compose:

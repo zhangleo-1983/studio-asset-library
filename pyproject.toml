@@ -12,6 +12,9 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
+    "pillow>=10",            # 图片压缩/尺寸(打标发送前长边压缩,迁自旧 providers.py)
+    "pillow-heif>=0.16",     # iPhone .HEIC 解码(旧 providers.py 已引入)
+    "openai>=1.0",           # Qwen-VL 走 OpenAI 兼容接口
 ]
 
 [project.optional-dependencies]

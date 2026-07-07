@@ -29,14 +29,19 @@ def migrated_db():
         conn.execute(text(f"CREATE DATABASE {TEST_DB}"))
     admin.dispose()
 
-    # 2) 指向测试库并清缓存(config/engine/sessionmaker 都带 lru_cache)
+    # 2) 指向测试库 + 隔离存储根,清缓存(config/engine/sessionmaker/storage 都带 lru_cache)
+    import tempfile
+
     os.environ["DATABASE_URL"] = TEST_URL
-    from app import db
+    os.environ["STORAGE_BACKEND"] = "local"
+    os.environ["LOCAL_STORAGE_ROOT"] = tempfile.mkdtemp(prefix="balloon-test-storage-")
+    from app import db, storage
     from app.config import get_settings
 
     get_settings.cache_clear()
     db.get_engine.cache_clear()
     db._get_sessionmaker.cache_clear()
+    storage.get_storage_backend.cache_clear()
 
     # 3) 一条命令建库:alembic upgrade head(逐表 DDL + REVOKE + tenant_id=0)
     from alembic import command
