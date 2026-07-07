@@ -77,7 +77,9 @@ def test_happy_path_full_loop():
             {"i": task_id},
         ).first()
     assert trow[0] == "done"
-    assert trow[1]["structure_types"] == ["立柱", "拱门"]  # 原始中文,未被 concept_key 覆盖
+    # 【P2-3】output = {_raw_text(全文), parsed(对象)};parsed 保留原始中文,未被 concept_key 覆盖
+    assert trow[1]["parsed"]["structure_types"] == ["立柱", "拱门"]
+    assert "_raw_text" in trow[1] and "爱心" in trow[1]["_raw_text"]
     assert trow[2] == 100 and trow[3] == 50 and trow[4] == "qwen-vl-max"
 
 

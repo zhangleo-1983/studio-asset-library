@@ -43,3 +43,32 @@
 
 **关联:** data-model §3.7【N3】(config.payload.vocab_versions 批次内锁定)、seed.py 的 config_version 播种、
 skeleton-checklist §5 取舍 1。
+
+---
+
+## OQ-2 running 孤儿任务无回收机制 —— 【NAS 迁移阶段前置条件】
+
+> 来源:R03 评审 P2-1。挂账,不阻塞打标闭环销账;**NAS 2–3 万张批打前必须先做**。
+
+`claim_next_task` 把任务置 `running` 并提交后,若 worker 崩溃,该任务永久滞留 `running`——
+`run_batch` 只认 `pending`,resume 对它无感,该图再不会被打。单图 demo/冒烟无碍,批量必炸。
+
+**动作(NAS 阶段开工前):** 加一条回收入口(不必自动化):一个 CLI/make 目标,把**超时** `running`
+与 `failed` 重置为 `pending`;`claim_next_task` 补记 `claimed_at`(需加列/迁移)作为超时判据。
+在此之前不得启动 NAS 批量打标。
+
+**关联:** [app/tagging/execute.py](../app/tagging/execute.py) `claim_next_task`/`run_batch`;migration §4 步骤 3–4。
+
+---
+
+## OQ-3 run_id 无生成纪律 —— 【NAS 迁移阶段前置条件】
+
+> 来源:R03 评审 P2-5。挂账,不阻塞打标闭环销账。
+
+`run_id` 是断点续跑与查询②(词表升级定位)的键,不是备注字段。当前 demo 用常量、冒烟用文件名、
+`enqueue_tagging_task` 让调用方随手编,无统一格式。
+
+**动作(NAS/批量阶段开工前):** 建统一生成函数与格式规范(如 `{purpose}_{yyyymmdd}_{seq}`),
+批量入队一律经它,禁止裸传字符串。
+
+**关联:** [app/tagging/execute.py](../app/tagging/execute.py) `enqueue_tagging_task`;查询② 定位依赖 run_id/vocab_version。

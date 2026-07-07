@@ -214,6 +214,9 @@ CREATE TABLE tag (
     config_version_id BIGINT REFERENCES config_version(config_version_id),
     run_id         TEXT,
     input_hash     TEXT,                           -- = asset.content_hash 快照
+    -- 【P2-2】input_tokens/output_tokens 是**调用级快照**(整次调用产多条 tag,每条重复记同一值):
+    --   仅供单标签溯源"这次调用花了多少",**禁止跨 tag 求和**(一次调用 9 标签求和 = 9 倍膨胀)。
+    --   计费/用量聚合一律走 task(查询③),不从 tag 聚合。
     input_tokens   INT,
     output_tokens  INT,
     confidence     NUMERIC(4,3),

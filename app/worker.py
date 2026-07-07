@@ -22,6 +22,8 @@ logger = logging.getLogger("balloon.worker")
 
 
 def _tenants_with_pending() -> list[int]:
+    # 【裁决九 · 第 1 类】只读基础设施扫描:reason 声明即可、日志留痕,不落 event
+    # (只为调度自身服务、不触碰业务数据对外产出)。见 architecture §3.1 / db.py docstring。
     with platform_session(reason="worker:scan_pending") as session:
         rows = session.execute(
             text(

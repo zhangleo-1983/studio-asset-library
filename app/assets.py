@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.context import get_current_tenant
 from app.db import tenant_session
@@ -80,23 +81,33 @@ def ingest_asset(
 
         # 未命中:新建。storage_key NOT NULL,故先占位再回填(asset 非只增,可 UPDATE)。
         width, height = _dims(content)
-        asset_id = int(
-            session.execute(
-                text(
-                    """
-                    INSERT INTO asset
-                        (tenant_id, content_hash, byte_size, mime_type, width, height,
-                         storage_key, original_name, uploaded_by)
-                    VALUES (:t, :h, :sz, :mime, :w, :ht, :sk, :on, :by)
-                    RETURNING asset_id
-                    """
-                ),
-                {
-                    "t": tenant_id, "h": content_hash, "sz": len(content), "mime": mime_type,
-                    "w": width, "ht": height, "sk": "pending", "on": original_name, "by": uploaded_by,
-                },
-            ).scalar_one()
-        )
+        try:
+            asset_id = int(
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO asset
+                            (tenant_id, content_hash, byte_size, mime_type, width, height,
+                             storage_key, original_name, uploaded_by)
+                        VALUES (:t, :h, :sz, :mime, :w, :ht, :sk, :on, :by)
+                        RETURNING asset_id
+                        """
+                    ),
+                    {
+                        "t": tenant_id, "h": content_hash, "sz": len(content), "mime": mime_type,
+                        "w": width, "ht": height, "sk": "pending", "on": original_name, "by": uploaded_by,
+                    },
+                ).scalar_one()
+            )
+        except IntegrityError:
+            # 【P2-6】并发同图:另一请求已抢先 INSERT,撞 UNIQUE(tenant_id, content_hash)。
+            # 回滚后按普通去重跳过,不 500。
+            session.rollback()
+            row = session.execute(
+                text("SELECT asset_id FROM asset WHERE tenant_id=:t AND content_hash=:h"),
+                {"t": tenant_id, "h": content_hash},
+            ).first()
+            return IngestResult(asset_id=int(row[0]), outcome="skipped_dup", content_hash=content_hash)
         storage_key = get_storage_backend().put(
             tenant_id, asset_id, content, mime_type=mime_type, original_ext=original_ext
         )

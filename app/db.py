@@ -60,6 +60,11 @@ def platform_session(reason: str) -> Iterator[Session]:
     """平台侧会话:显式声明用途(reason),绕过租户中间件。
 
     仅限:建租户种子、跨租户平台聚合等无单一租户归属的操作。调用点自证授权。
+
+    【裁决九】跨租户访问口径二分(见 architecture §3.1):
+    ① 只读基础设施扫描(worker 轮询 pending、健康检查):reason 声明即可、日志留痕,不落 event;
+    ② 数据性跨租户聚合/导出(查询③计量等,触碰业务数据并对外产出):必须落 sensitive 事件
+       (tenant_id=0),一次调用一条。拿不准按 ②。
     """
     if not reason or not reason.strip():
         raise ValueError("platform_session 必须显式声明 reason(宪法:跨租户访问显式声明)")

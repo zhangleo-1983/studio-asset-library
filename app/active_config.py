@@ -54,6 +54,35 @@ def current_config(session: Session, tenant_id: int, scope: str) -> Optional[dic
     }
 
 
+class CrossTenantConfigError(ValueError):
+    """生效指针或其锁定的词表版本跨租户引用(不变量一)。"""
+
+
+def _assert_config_belongs(session: Session, tenant_id: int, config_version_id: int) -> None:
+    """config_version 属本租户,且 payload.vocab_versions 每维版本行属本租户且 dimension 正确。"""
+    row = session.execute(
+        text("SELECT tenant_id, payload FROM config_version WHERE config_version_id=:c"),
+        {"c": config_version_id},
+    ).first()
+    if row is None:
+        raise CrossTenantConfigError(f"config_version {config_version_id} 不存在")
+    if int(row[0]) != int(tenant_id):
+        raise CrossTenantConfigError(
+            f"config_version {config_version_id} 属租户 {row[0]},不能被租户 {tenant_id} 激活"
+        )
+    payload = row[1] if isinstance(row[1], dict) else {}
+    for dim, vvid in (payload.get("vocab_versions") or {}).items():
+        vv = session.execute(
+            text("SELECT tenant_id, dimension FROM vocabulary_version WHERE vocab_version_id=:v"),
+            {"v": vvid},
+        ).first()
+        if vv is None or int(vv[0]) != int(tenant_id) or vv[1] != dim:
+            raise CrossTenantConfigError(
+                f"payload.vocab_versions[{dim}]={vvid} 归属校验失败"
+                f"(应属租户 {tenant_id} 且 dimension={dim})"
+            )
+
+
 def activate_config(
     session: Session,
     *,
@@ -67,6 +96,10 @@ def activate_config(
 
     唯一推指针入口:UPSERT active_config + 落 config_activate 事件(from/to 进 payload)。
     """
+    # 0) 跨租户防线【P1-3 / 不变量一】:指针目标必须属本租户,payload.vocab_versions 逐维归属正确。
+    #    库层另有复合外键兜底(0004);此处应用层早失败,给清楚报错。
+    _assert_config_belongs(session, tenant_id, config_version_id)
+
     # 1) 读旧指针(用于 from/to 与回滚辨识)
     from_id = current_config_version_id(session, tenant_id, scope)
 

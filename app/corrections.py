@@ -20,7 +20,12 @@ from app.active_config import current_config
 from app.context import get_current_tenant
 from app.db import tenant_session
 from app.events import record_event
+from app.tagging import vocab
 from app.tagging.vocab import CONSTRAINED_DIMENSIONS
+
+
+class CorrectionError(ValueError):
+    """人工修正被闸门/状态机守卫拒绝(非法概念键、非法状态迁移、role 不合法等)。"""
 
 
 def _tag_row(session: Session, tenant_id: int, tag_id: int):
@@ -31,6 +36,36 @@ def _tag_row(session: Session, tenant_id: int, tag_id: int):
     if row is None:
         raise ValueError(f"tag {tag_id} 不存在(租户 {tenant_id})")
     return {"dimension": row[0], "value": row[1], "status": row[2]}
+
+
+def _current_vocab_version(session: Session, tenant_id: int, dimension: str) -> int:
+    """当期配置锁定的某维词表版本;取不到即拒绝(不猜、不取最新)【裁决七】。"""
+    cfg = current_config(session, tenant_id, "tagging")
+    vv = (cfg or {}).get("payload", {}).get("vocab_versions", {}).get(dimension) if cfg else None
+    if vv is None:
+        raise CorrectionError(f"租户 {tenant_id} 当期配置未锁定 {dimension} 维词表版本,无法校验概念键")
+    return int(vv)
+
+
+def _assert_concept_active(session: Session, tenant_id: int, dimension: str, value: str) -> None:
+    """受约束维:目标值必须是当期版本在册且 active 的 concept_key(P1-1,同模型侧 N12 闸门)。"""
+    if dimension not in CONSTRAINED_DIMENSIONS:
+        return
+    vv = _current_vocab_version(session, tenant_id, dimension)
+    if not vocab.concept_key_is_active(session, tenant_id, dimension, vv, value):
+        raise CorrectionError(
+            f"'{value}' 不是 {dimension} 维当期版本(v_id={vv})在册的 concept_key;"
+            f"应先扩词表/补 alias 再转正,不得直接落非法概念键"
+        )
+
+
+def _assert_role_shape(dimension: str, role: Optional[str]) -> None:
+    """role 双向早失败(P1-1,与 events.py 早失败风格一致,不靠 DB CHECK 兜)。"""
+    if dimension == "color":
+        if role not in ("primary", "accent"):
+            raise CorrectionError("color 维必须指定 role ∈ {primary, accent}")
+    elif role is not None:
+        raise CorrectionError(f"{dimension} 维不得带 role(role_shape 双向)")
 
 
 def _insert_correction(
@@ -61,10 +96,19 @@ def _event_correction(session, tenant_id, corrected_by, tag_id, payload) -> None
 
 
 def update_tag(tag_id: int, new_value: str, *, corrected_by: int, reason: Optional[str] = None) -> int:
-    """改值(含 unresolved 转正)。返回 correction_id。"""
+    """改值(含 unresolved 转正)。返回 correction_id。
+
+    守卫:①状态机——仅 active|unresolved 可 update(P1-2);②闸门——受约束维目标值须当期在册(P1-1)。
+    """
     tenant_id = get_current_tenant()
     with tenant_session() as session:
         cur = _tag_row(session, tenant_id, tag_id)
+        if cur["status"] not in ("active", "unresolved"):
+            raise CorrectionError(
+                f"update 仅允许 active|unresolved 标签;当前 status={cur['status']}"
+                "(removed 请用 restore;superseded 复活需单独提设计)"
+            )
+        _assert_concept_active(session, tenant_id, cur["dimension"], new_value)
         cid = _insert_correction(session, tenant_id, tag_id, "update", cur["value"], new_value, corrected_by, reason)
         # 改值 + 迁回 active(unresolved 转正 / active 保持);current_correction_id 指针由唯一写入路径维护【N8】
         session.execute(
@@ -95,10 +139,18 @@ def remove_tag(tag_id: int, *, corrected_by: int, reason: Optional[str] = None) 
 
 
 def restore_tag(tag_id: int, *, corrected_by: int, reason: Optional[str] = None) -> int:
-    """恢复被删标签:status 迁回 active。返回 correction_id。"""
+    """恢复被删标签:status 迁回 active。返回 correction_id。
+
+    守卫:仅 removed 可 restore(P1-2)——superseded 不给隐式复活通道,active 不空转。
+    """
     tenant_id = get_current_tenant()
     with tenant_session() as session:
         cur = _tag_row(session, tenant_id, tag_id)
+        if cur["status"] != "removed":
+            raise CorrectionError(
+                f"restore 仅允许 removed 标签;当前 status={cur['status']}"
+                "(superseded 复活需单独提设计)"
+            )
         cid = _insert_correction(session, tenant_id, tag_id, "restore", None, None, corrected_by, reason)
         session.execute(
             text("UPDATE tag SET status='active', current_correction_id=:cid "
@@ -121,13 +173,18 @@ def add_tag(
     """
     tenant_id = get_current_tenant()
     with tenant_session() as session:
-        if dimension in CONSTRAINED_DIMENSIONS and vocab_version_id is None:
-            cfg = current_config(session, tenant_id, "tagging")
-            if cfg:
-                vocab_version_id = cfg["payload"].get("vocab_versions", {}).get(dimension)
-        # 自由文本维不记 vocab_version_id
-        if dimension not in CONSTRAINED_DIMENSIONS:
-            vocab_version_id = None
+        _assert_role_shape(dimension, role)  # P1-1:role 双向早失败
+        if dimension in CONSTRAINED_DIMENSIONS:
+            # N11:记 vocab_version_id;未显式给则取当期配置锁定版本
+            if vocab_version_id is None:
+                vocab_version_id = _current_vocab_version(session, tenant_id, dimension)
+            # P1-1:补漏标的值也必须是该版本在册的合法 concept_key(不得裸落非法键)
+            if not vocab.concept_key_is_active(session, tenant_id, dimension, vocab_version_id, value):
+                raise CorrectionError(
+                    f"'{value}' 不是 {dimension} 维版本 v_id={vocab_version_id} 在册的 concept_key"
+                )
+        else:
+            vocab_version_id = None  # 自由文本维不记
 
         tag_id = int(
             session.execute(
