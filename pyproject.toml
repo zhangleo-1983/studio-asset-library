@@ -15,6 +15,7 @@ dependencies = [
     "pillow>=10",            # 图片压缩/尺寸(打标发送前长边压缩,迁自旧 providers.py)
     "pillow-heif>=0.16",     # iPhone .HEIC 解码(旧 providers.py 已引入)
     "openai>=1.0",           # Qwen-VL 走 OpenAI 兼容接口
+    "python-multipart>=0.0.9",  # demo 单页上传(FastAPI UploadFile)
 ]
 
 [project.optional-dependencies]

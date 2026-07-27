@@ -36,3 +36,27 @@ compose-up:
 
 compose-down:
 	docker compose down -v
+
+# ── 零级验证 demo(demo/zero-validation 分支)────────────────────────
+export STORAGE_BACKEND ?= local
+export LOCAL_STORAGE_ROOT ?= /tmp/balloon-demo-storage
+export DEMO_ASSETS_DIR ?= demo_assets
+
+.PHONY: demo-assets demo-seed demo-web internal-qa-seed
+
+# 生成自有版权合规占位素材(正式演示前换真实合规图,重跑本目标)
+demo-assets:
+	$(PY) scripts/gen_demo_assets.py
+
+# 一键:建库 + 合规素材 + 只入合规库并断言计数(验收①)。DEMO_MOCK=1 走确定性 provider
+demo-seed: migrate demo-assets
+	$(PY) scripts/demo_seed.py
+
+# 起单页 demo web(需先 demo-seed)
+demo-web:
+	.venv/bin/uvicorn app.demo.server:app --host 0.0.0.0 --port 8100
+
+# 内部质量目测集(69 张)——强制独立库,永不进 demo 实例/入仓。DIR=<LOCAL_IMAGE_DIR>
+internal-qa-seed:
+	DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_internal_qa \
+	  $(PY) scripts/internal_qa_seed.py --dir $(DIR)

@@ -14,3 +14,8 @@ venv/
 *.egg-info/
 build/
 dist/
+
+# demo 素材(可由 scripts/gen_demo_assets.py 重新生成;正式合规图不入仓,演示机本地放置)
+demo_assets/
+# 内部 QA 目测产物永不入仓(红线:C1 对外禁用)
+internal_qa_*/
