@@ -60,3 +60,7 @@ demo-web:
 internal-qa-seed:
 	DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_internal_qa \
 	  $(PY) scripts/internal_qa_seed.py --dir $(DIR)
+
+# 词表对齐(演示前置):给 demo 补词条。DIM= KEY= ZH=
+demo-vocab-add:
+	$(PY) scripts/demo_vocab_add.py --dim $(DIM) --key $(KEY) --zh $(ZH)
