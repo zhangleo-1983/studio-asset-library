@@ -58,3 +58,7 @@ docker compose up --build     # api / worker / postgres(无 Redis)
 ## 对照校验
 
 alembic DDL 与 [`docs/data-model.md`](docs/data-model.md) 的表名/约束名/索引名一一对应,可人工抽查。
+
+## 许可
+
+本项目以 [GNU AGPL-3.0](LICENSE) 发布。商业授权请联系 zhangliang@getbitbeats.com。
