@@ -1,0 +1,78 @@
+{
+  "pack_format": 1,
+  "id": "balloon",
+  "title": "气球派对布置(完整示例包)",
+  "description": "示例行业包:气球派对布置图库的四维标签体系(造型/配色/场景/主题)、提示词、UI 文案与演示素材生成器。演示素材全部为程序绘制、自有版权(见仓库根 ASSETS.md)。",
+  "industry": "balloon_party",
+  "prompt": {
+    "file": "prompt.txt",
+    "version": "tagging_v3",
+    "slots": {
+      "persona": "气球派对布置行业的资深图库管理员"
+    }
+  },
+  "output_schema": {
+    "file": "output_schema.json",
+    "version": "tagging_output_v2"
+  },
+  "taxonomy": "taxonomy.json",
+  "ui": "ui.json",
+  "tagging_config": {},
+  "demo": {
+    "tenant_slug": "demo_tenant_demo",
+    "tenant_name": "演示租户",
+    "assets": {
+      "generator": "demo/gen_demo_assets.py",
+      "library_subdir": "library",
+      "fallback_subdir": "fallback"
+    },
+    "view": [
+      {
+        "label": "主题",
+        "dimension": "theme",
+        "translate": false
+      },
+      {
+        "label": "场景",
+        "dimension": "scene",
+        "translate": true
+      },
+      {
+        "label": "造型",
+        "dimension": "structure",
+        "translate": true
+      },
+      {
+        "label": "配色",
+        "dimension": "color",
+        "translate": true,
+        "show_role": true,
+        "caption_dimension": "color_scheme"
+      }
+    ],
+    "recall": [
+      {
+        "dimension": "structure",
+        "weight": 3
+      },
+      {
+        "dimension": "color",
+        "role": "primary",
+        "weight": 2
+      },
+      {
+        "dimension": "color",
+        "weight": 1
+      },
+      {
+        "dimension": "scene",
+        "weight": 1
+      },
+      {
+        "dimension": "theme",
+        "weight": 1
+      }
+    ],
+    "loop_script": "demo/demo_loop.py"
+  }
+}

@@ -1,7 +1,7 @@
 """一键打标闭环演示(mock provider,无需真实密钥)。
 
 对一张现造样例图,完整跑通:上传→入库→打标(mock)→落 tag→复核队列可查→修正闭环。
-用法:先 alembic upgrade head,再 `python scripts/demo_loop.py`(见 Makefile `demo` 目标)。
+用法:先 alembic upgrade head,再 `INDUSTRY_PACK=balloon make demo`(经 scripts/pack_run.py loop)。
 真实 Qwen 冒烟见 scripts/smoke_qwen.py。
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import os
 import sys
 
 # 允许从仓库根直接运行
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.getcwd())  # 从仓库根运行(经 scripts/pack_run.py loop)
 
 from app import corrections, review  # noqa: E402
 from app.assets import ingest_asset  # noqa: E402

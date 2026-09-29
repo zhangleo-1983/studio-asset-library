@@ -21,7 +21,7 @@ from app.context import get_current_tenant
 from app.db import tenant_session
 from app.events import record_event
 from app.tagging import vocab
-from app.tagging.vocab import CONSTRAINED_DIMENSIONS
+from app.packs import get_pack
 
 
 class CorrectionError(ValueError):
@@ -49,7 +49,7 @@ def _current_vocab_version(session: Session, tenant_id: int, dimension: str) -> 
 
 def _assert_concept_active(session: Session, tenant_id: int, dimension: str, value: str) -> None:
     """受约束维:目标值必须是当期版本在册且 active 的 concept_key(P1-1,同模型侧 N12 闸门)。"""
-    if dimension not in CONSTRAINED_DIMENSIONS:
+    if dimension not in get_pack().constrained_dimensions:
         return
     vv = _current_vocab_version(session, tenant_id, dimension)
     if not vocab.concept_key_is_active(session, tenant_id, dimension, vv, value):
@@ -61,9 +61,10 @@ def _assert_concept_active(session: Session, tenant_id: int, dimension: str, val
 
 def _assert_role_shape(dimension: str, role: Optional[str]) -> None:
     """role 双向早失败(P1-1,与 events.py 早失败风格一致,不靠 DB CHECK 兜)。"""
-    if dimension == "color":
-        if role not in ("primary", "accent"):
-            raise CorrectionError("color 维必须指定 role ∈ {primary, accent}")
+    roles = get_pack().roles_for(dimension)
+    if roles:
+        if role not in roles:
+            raise CorrectionError(f"{dimension} 维必须指定 role ∈ {set(roles)}")
     elif role is not None:
         raise CorrectionError(f"{dimension} 维不得带 role(role_shape 双向)")
 
@@ -168,13 +169,13 @@ def add_tag(
 ) -> int:
     """human 补漏标:新增 source='human' 行,不走修正链,仅落 event。返回 tag_id。
 
-    - color 维 role 必填(role_shape 双向 CHECK);非 color 维 role 必须为空。
+    - 带 roles 的维度 role 必填(role_shape 双向 CHECK);其余维 role 必须为空。
     - 受约束维记 vocab_version_id【N11】:未显式给则取当期配置锁定版本(缩小查询②"待归类"桶)。
     """
     tenant_id = get_current_tenant()
     with tenant_session() as session:
         _assert_role_shape(dimension, role)  # P1-1:role 双向早失败
-        if dimension in CONSTRAINED_DIMENSIONS:
+        if dimension in get_pack().constrained_dimensions:
             # N11:记 vocab_version_id;未显式给则取当期配置锁定版本
             if vocab_version_id is None:
                 vocab_version_id = _current_vocab_version(session, tenant_id, dimension)

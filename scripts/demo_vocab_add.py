@@ -1,13 +1,11 @@
-"""词表对齐(演示前置 SOP):给 demo 租户按目标工作室的作品风格补词条。
+"""词表对齐:给 demo 租户按目标用户的素材风格补词条(受约束维度,取自当前行业包)。
 
-**这是填 seed 数据,不是改代码**(零级验证不解冻开发)。杀手锏(给某工作室做专属选款页)前,
-先把它常出现、但不在 28 词表里的造型/场景/配色补进来,避免大面积 unresolved 砸场。
+**这是填 seed 数据,不是改代码**。给某个用户做专属演示前,先把其常出现、但不在包内词表里的词补进来,
+避免大面积 unresolved。
 
 只增不改:向当期生效词表版本追加新 concept_key(不动任何已冻结概念键;裁决四只禁改、不禁增)。
 用法:
-  python scripts/demo_vocab_add.py --dim structure --key backdrop --zh 背景墙
-  python scripts/demo_vocab_add.py --dim structure --key table_arrangement --zh 桌花
-  python scripts/demo_vocab_add.py --dim scene --key opening_ceremony --zh 开工大吉
+  python scripts/demo_vocab_add.py --dim <维度键> --key <ASCII concept_key> --zh <中文词形>
 """
 from __future__ import annotations
 
@@ -24,15 +22,16 @@ from app.active_config import current_config  # noqa: E402
 from app.db import platform_session  # noqa: E402
 from app.demo import DEMO_TENANT  # noqa: E402
 from app.events import record_event  # noqa: E402
+from app.packs import get_pack  # noqa: E402
 
-CONSTRAINED = ("structure", "color", "scene")
+CONSTRAINED = get_pack().constrained_dimensions
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dim", required=True, choices=CONSTRAINED)
-    ap.add_argument("--key", required=True, help="ASCII concept_key,如 backdrop")
-    ap.add_argument("--zh", required=True, help="中文词形,如 背景墙")
+    ap.add_argument("--dim", required=True, choices=CONSTRAINED or None)
+    ap.add_argument("--key", required=True, help="ASCII concept_key")
+    ap.add_argument("--zh", required=True, help="中文词形")
     ap.add_argument("--color-kind", default=None, choices=[None, "simple", "compound"])
     args = ap.parse_args()
 

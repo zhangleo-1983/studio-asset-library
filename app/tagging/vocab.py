@@ -10,8 +10,12 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# 受词表约束的维度(存 concept_key);theme / color_scheme 为自由文本,不入本模块。
-CONSTRAINED_DIMENSIONS = ("structure", "color", "scene")
+from app.packs import get_pack
+
+
+def constrained_dimensions() -> tuple:
+    """当前行业包里受词表约束的维度(存 concept_key);自由文本维不入本模块。"""
+    return get_pack().constrained_dimensions
 
 
 def labels_zh(session: Session, tenant_id: int, dimension: str, vocab_version_id: int) -> list[str]:

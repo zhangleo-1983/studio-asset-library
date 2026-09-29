@@ -1,14 +1,14 @@
-# balloon-platform 旧资产迁移清单
+# studio-asset-library 旧资产迁移清单
 
 > 状态:**R02 二审返修稿(v3),待差量核销**。v2 基础上按裁决四(A-3 冻结、scene 改 2 键)、N3(词表版本锁定)、N10(REVOKE 扩表)与场景3小注(种子脚本参数化)返修。
-> 来源:旧项目 `balloon-tagging-eval`(已退役为资产库,不再开发)。
+> 来源:旧项目(已退役为资产库,不再开发)。
 > 原则:迁移只搬**已验证的资产与结论**,不搬旧项目的临时脚本与一次性 run 产物。目标结构见 [data-model.md](./data-model.md)。
 
 ---
 
 ## 0. 一句话
 
-从旧项目搬三类东西:**① 打标"知识"**(提示词 / 词表 / alias_map / 锁定的生产配置)、**② 溯源与修正设计**(original_tags / sync_corrections 的机制,数据源换成事件流水+修正链)、**③ 客户 NAS 存量图 2–3 万张**(一次性上云,断点续传 + 内容 hash 去重)。
+从旧项目搬三类东西:**① 打标"知识"**(提示词 / 词表 / alias_map / 锁定的生产配置)、**② 溯源与修正设计**(original_tags / sync_corrections 的机制,数据源换成事件流水+修正链)、**③ 存量图库 2–3 万张**(一次性上云,断点续传 + 内容 hash 去重)。
 
 ---
 
@@ -17,75 +17,25 @@
 ### 1.1 打标提示词 → `prompt_version` + 配置
 
 - **来源:** `prompts/tagging.txt`(四维:主题/配色/造型/场景 + suggested_filename/confidence/needs_review/notes)。
-- **动作:** 原文迁入新仓库 `prompts/tagging_v2.txt`,登记 `prompt_version = 'tagging_v2'`。提示词里 `{{COLOR_VOCAB}}` / `{{STRUCTURE_VOCAB}}` 占位符改为**从 `vocabulary` 表按当前版本注入**(旧项目从 YAML 注入,新平台从库注入),注入所用的 `vocab_version_id` 写进标签溯源。【不变量二】
-- **【Q2】提示词内容锚 + 命名纪律:** 提示词文件**按版本号命名、只增不改**——改内容即升版本号(`tagging_v2` → `tagging_v3`),不允许同名文件覆盖修改。同时 `config_version` 记录该 prompt 本体的 `prompt_sha256`(见 data-model §3.7),标签经 `config_version_id` 锚到确切的提示词内容,杜绝"同版本号下内容漂移导致溯源失真"。
+- **动作:** 原文迁入行业包 `packs/<id>/prompt.txt`,版本号登记在该包 `pack.json` 的 `prompt.version`。提示词里的词表占位符(`{{VOCAB:<维度键>}}`)**从 `vocabulary` 表按当前版本注入**(旧项目从 YAML 注入,新平台从库注入),注入所用的 `vocab_version_id` 写进标签溯源。【不变量二】
+- **【Q2】提示词内容锚 + 命名纪律:** 提示词文件**按版本号命名、只增不改**——改内容即升版本号(如 `v2` → `v3`),不允许同名文件覆盖修改。同时 `config_version` 记录该 prompt 本体的 `prompt_sha256`(见 data-model §3.7),标签经 `config_version_id` 锚到确切的提示词内容,杜绝"同版本号下内容漂移导致溯源失真"。
 - **判分裁判提示词** `prompts/judge_theme.txt`(theme 语义等价裁判)属评测期工具,**本期不迁入生产路径**,归档到 roadmap 的"评测能力"阶段。
 
-### 1.2 structure / colors 词表 → `vocabulary` 表
+### 1.2 词表 → `vocabulary` 表
 
-| 旧文件 | 内容 | 迁入 |
-|---|---|---|
-| `data/vocab/structure_types.yaml` | `enum: [立柱, 拱门, 花盒]` | `vocabulary` dimension=structure,3 条,concept_key=column/arch/flowerbox,`labels={"zh":"立柱"…}` |
-| `data/vocab/colors.yaml` | `simple:[粉白红蓝绿黄紫黑银金]` `compound:[多巴胺,珠光白,珠光粉,铬玫瑰金,铬香槟金,木瓜黄,铬金]` | `vocabulary` dimension=color,`color_kind` 区分 simple/compound |
-
-- 首次迁入即生成各维度 `vocabulary_version` 的 `version_no=1`,`note='migrated from balloon-tagging-eval'`。
+- **来源:** 旧项目的词表文件(每个受约束维度一份枚举/分组列表)。
+- **去向:** 行业包的 `taxonomy.json`(`packs/<id>/`,字段说明见 [industry-packs.md](./industry-packs.md))。种子脚本据此为每个受约束维度生成 `vocabulary_version` 的 `version_no=1` 与 `vocabulary` 行,`labels={"zh":"<词形>"}`;需要区分子类的维度(如颜色的单色/复合色)用词条的 `color_kind` 字段。
 - 多语言:`labels` 本期只填 `zh`,结构留位 `en` 等。【不变量三 — 留位不实现】
-- scene 枚举(`生日宴/寿宴/宝宝宴/商场美陈/校园活动/开业/婚礼/其他`)旧项目写死在 schema+prompt,新平台**也迁成 `vocabulary` dimension=scene**,消除旧项目"scene 改词表要动两个地方"的痛点(见旧 sync_corrections 对 scene 的特殊处理)。
+- 旧项目里写死在 schema + prompt 两处的枚举(如"场景"),新平台**也迁成词表维度**,消除"改词表要动两个地方"的痛点。
 
-#### 【A-3 · 定稿冻结(裁决四已批准)】concept_key 命名(structure 3 + color 17 + scene 8)
+#### 【A-3 · 定稿冻结】concept_key 命名
 
-按裁决一方案 A,`tag.value` 存 concept_key,故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。**裁决四(2026-07-05):批准 26 条,改 2 条(scene 的宝宝宴、开业),批准即冻结。** 命名原则:小写英文、复合色用下划线、语义直译、避免歧义。**自此全部 concept_key 不得再改,后续改中文词形只动 `vocabulary.labels.zh`。**
-
-**structure(3 条,已在上表):**
-
-| zh 词形 | concept_key |
-|---|---|
-| 立柱 | `column` |
-| 拱门 | `arch` |
-| 花盒 | `flowerbox` |
-
-**color(17 条 = 10 单色 + 7 复合色):**
-
-| zh 词形 | concept_key | color_kind |
-|---|---|---|
-| 粉 | `pink` | simple |
-| 白 | `white` | simple |
-| 红 | `red` | simple |
-| 蓝 | `blue` | simple |
-| 绿 | `green` | simple |
-| 黄 | `yellow` | simple |
-| 紫 | `purple` | simple |
-| 黑 | `black` | simple |
-| 银 | `silver` | simple |
-| 金 | `gold` | simple |
-| 多巴胺 | `dopamine` | compound |
-| 珠光白 | `pearl_white` | compound |
-| 珠光粉 | `pearl_pink` | compound |
-| 铬玫瑰金 | `chrome_rose_gold` | compound |
-| 铬香槟金 | `chrome_champagne_gold` | compound |
-| 木瓜黄 | `papaya_yellow` | compound |
-| 铬金 | `chrome_gold` | compound |
-
-**scene(8 条):**
-
-| zh 词形 | concept_key |
-|---|---|
-| 生日宴 | `birthday` |
-| 寿宴 | `longevity_feast` |
-| 宝宝宴 | `baby_banquet` |
-| 商场美陈 | `mall_display` |
-| 校园活动 | `campus_event` |
-| 开业 | `grand_opening` |
-| 婚礼 | `wedding` |
-| 其他 | `other` |
-
-> **【裁决四改名 2 处】** 宝宝宴 `baby_shower → baby_banquet`(baby shower 是产前送礼会,宝宝宴是产后满月/百日/周岁宴,语义错位,冻结前纠正);开业 `opening → grand_opening`(opening 过泛,grand_opening 精确)。
-> 说明:concept_key 已冻结,后续改中文词形("立柱"→"圆柱")只改 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。theme 维不入此表(自由文本,无 concept_key)。【A-3 定稿】
+`tag.value` 存 concept_key(方案 A),故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。命名原则:小写英文、复合词用下划线、语义直译、避免歧义、避免过泛。**一经上线,concept_key 不得再改,后续改中文词形只动 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。** 自由文本维不入词表(无 concept_key)。各行业包的具体词条与概念键见其 `taxonomy.json`(示例见 `packs/<id>/taxonomy.json`)。
 
 ### 1.3 alias_map → `alias_map` 表 【A-2】
 
-- **来源:** `data/vocab/alias_map.yaml`,按字段分区(structure/theme/color/scene),已有一条 `structure: 气球花盒 → 花盒`。
-- **动作【A-2】:** 逐条迁入 `alias_map` 表,但 `standard_value` 语义改为**指向 concept_key**(不再是中文标准词形)。例:旧 `气球花盒 → 花盒` 迁为 **`alias='气球花盒', concept_key='flowerbox'`**。`source='human'`(存量视为人工维护)。
+- **来源:** 旧项目的别名表,按字段分区;去向为行业包 `taxonomy.json` 中各维度的 `aliases`。
+- **动作【A-2】:** 逐条迁入 `alias_map` 表,但 `standard_value` 语义改为**指向 concept_key**(不再是中文标准词形)。例:旧「变体词 → 标准词」迁为 **`alias='<变体词>', concept_key='<标准词的键>'`**。`source='human'`(存量视为人工维护)。
 - 归一化解析链(模型中文词形 → alias_map/labels.zh 反查 → concept_key 落库)与 labels.zh 唯一约束见 data-model §3.4【A-4】。冲突/成环校验规则(旧 `apply_alias` 的拒绝逻辑)在新平台的回流写入路径里保留。【见 §2.2】
 
 ### 1.4 生产配置(评测锁定)→ `config_version`
@@ -115,15 +65,15 @@
 
 旧项目 `CLAUDE.md` 第 5 条:模型输出经常不严格守 schema。两个兜底函数必须迁入新平台的打标结果解析层:
 
-- `coerce_theme_str` — theme 偶尔被包成 `{"name":…,"theme_type":…}` 而非字符串。
-- `coerce_str_list` — `color_scheme.primary` / `structure_types` 偶尔是裸字符串而非数组,直接 join 会把"多巴胺"拆成"多+巴+胺"。
+- `coerce_scalar` — 标量字段偶尔被包成 `{"name":…,"<type>":…}` 而非字符串。
+- `coerce_str_list` — 应为数组的字段偶尔是裸字符串,直接 join 会把词拆成单字。
 
-> 迁移风险提示:任何读取 Qwen 输出四维字段的新代码,都要先过这两个兜底函数,不能假设输出严格符合 `tagging_output_v2` schema。
+> 迁移风险提示:任何读取 Qwen 输出维度字段的新代码,都要先过这两个兜底函数,不能假设输出严格符合 `tagging_output_v2` schema。
 
 ### 1.6 输出 schema → `output_schema_version = 'tagging_output_v2'`
 
-- **来源:** `schema/output_schema.json`(title `balloon_tagging_output_v2`)。
-- **动作:** 迁成 pydantic 模型 + JSON Schema 双份,版本号 `tagging_output_v2`,存于 `task.output_schema_version`。字段完全沿用(image_id/theme/theme_type/color_scheme{primary,accent,scheme_name}/structure_types/scene_guess/suggested_filename/confidence/needs_review/notes)。
+- **来源:** 旧项目的 `output_schema.json`;去向为行业包 `packs/<id>/output_schema.json`,版本号登记在 `pack.json` 的 `output_schema.version`。
+- **动作:** 迁成 pydantic 模型 + JSON Schema 双份,版本号 `tagging_output_v2`,存于 `task.output_schema_version`。字段沿用;各维度从输出的哪个路径取值由行业包 `taxonomy.json` 的 `extraction` 声明。
 
 ---
 
@@ -160,9 +110,9 @@
 
 ---
 
-## 3. 客户 NAS 存量图一次性上云(约 2–3 万张)
+## 3. 存量图库一次性上云(约 2–3 万张)
 
-> 数量以实际为准(旧项目 `CLAUDE.md` 第 7 条教训:不要照抄文档假设数字,先 `find | wc -l` 核实)。评测期实测原图库仅 83 张;交付方案口径 2–3 万张历史图,迁移前先核数。
+> 数量以实际为准(旧项目 `CLAUDE.md` 第 7 条教训:不要照抄文档假设数字,先 `find | wc -l` 核实)。评测期实测原图库远小于交付口径;迁移前先核数。
 
 ### 3.1 迁移管线(设计)
 
@@ -177,7 +127,7 @@ NAS 扫描 ──→ 内容 hash(sha256) ──→ 去重判定 ──→ 上传
 
 - **迁移清单表/文件:** 每个源文件一行,记 `源路径 / sha256 / 状态(pending|uploaded|registered|skipped_dup|failed) / oss_key / asset_id / 错误`。管线启动先读清单,`uploaded/registered/skipped_dup` 的跳过——即旧项目 `resume: true` 的思路放大到迁移。
 - **幂等:** 上传 OSS 用 `{tenant_id}/{asset_id}/original.ext` 确定性 key;asset 写库靠 `(tenant_id, content_hash)` 唯一约束天然幂等,重跑不产生重复。
-- **分批与验收:** 沿用交付方案"分批打标、分批验收"节奏,迁移也分批(如按 NAS 目录/日期),每批出一份"入库数/去重数/失败数"小结。
+- **分批与验收:** 沿用"分批打标、分批验收"节奏,迁移也分批(如按存储目录/日期),每批出一份"入库数/去重数/失败数"小结。
 
 ### 3.3 内容 hash 去重(与不变量三对齐)
 
@@ -195,8 +145,8 @@ NAS 扫描 ──→ 内容 hash(sha256) ──→ 去重判定 ──→ 上传
 
 ## 4. 迁移执行顺序(评审通过后)
 
-- **步骤 0(种子数据,先于一切)【C7】:** 建库迁移脚本内固化 **`tenant_id=0`(平台公共库保留号)**;再种子写入**首个租户示例客户**(`tenant`)与**初始管理用户**(`app_user`,词表 `created_by` 引用它),各落一条 `event`。**必须先于步骤 1**——否则 `vocabulary.tenant_id` / `vocabulary_version.created_by` 的外键在第一步即报错(评审 C7 指出的依赖倒挂)。同一脚本内执行 **`REVOKE UPDATE, DELETE`** 覆盖全部只增表(event / tag_correction / vocabulary_version / config_version)【加固2/N10】。
-  - **【R02 场景3 小注】种子脚本参数化:** 该"建租户 + 建初始用户 + 词表种子 + 配置"逻辑写成**接受任意 `tenant_id` 的可重放脚本**(示例客户只是首次调用),第二个租户接入即以新 tenant 参数**重放同一脚本**——兑现场景 3 走查所称的"步骤 0 租户级重放",零业务代码改动。
+- **步骤 0(种子数据,先于一切)【C7】:** 建库迁移脚本内固化 **`tenant_id=0`(平台公共库保留号)**;再种子写入**首个租户**(`tenant`)与**初始管理用户**(`app_user`,词表 `created_by` 引用它),各落一条 `event`。**必须先于步骤 1**——否则 `vocabulary.tenant_id` / `vocabulary_version.created_by` 的外键在第一步即报错(评审 C7 指出的依赖倒挂)。同一脚本内执行 **`REVOKE UPDATE, DELETE`** 覆盖全部只增表(event / tag_correction / vocabulary_version / config_version)【加固2/N10】。
+  - **【R02 场景3 小注】种子脚本参数化:** 该"建租户 + 建初始用户 + 词表种子 + 配置"逻辑写成**接受任意 `tenant_id` 的可重放脚本**(首个租户只是首次调用),第二个租户接入即以新 tenant 参数**重放同一脚本**——兑现场景 3 走查所称的"步骤 0 租户级重放",零业务代码改动。
 1. 迁移 §1.2/§1.3/§1.4 词表·alias·配置(小、可先行、可校对)。
 2. 迁移 §1.1 提示词 + §1.5/§1.6 schema 与兜底函数,打通单张打标闭环。
 3. NAS 核数 → §3 存量图分批上云 + 去重入库。

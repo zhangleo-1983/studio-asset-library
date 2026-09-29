@@ -1,11 +1,13 @@
-"""一键导出方案页:服务端渲染**单文件 HTML**(客户图 + 四维标签 + 召回案例图)。
+"""一键导出方案页:服务端渲染**单文件 HTML**(上传图 + 维度视图 + 召回案例图)。
 
 浏览器直接打印即 PDF。模板 hardcode、内联样式、图片走 /image 端点。刻意绕开 export_job(冻结项)。
-叙事:"接单/成交"口径——标题与文案一律钩住"给客户的方案、拿单",禁用内部作业类措辞(见 90 秒脚本诚实度纪律)。
+所有文案取自行业包 ui.json 的 plan 节与 role_labels。
 """
 from __future__ import annotations
 
 from html import escape
+
+from app.packs import get_pack
 
 
 def _chip(text: str) -> str:
@@ -13,21 +15,25 @@ def _chip(text: str) -> str:
 
 
 def render_plan_page(*, uploaded_asset_id: int, view: dict, similar_asset_ids: list[int]) -> str:
-    colors = "".join(
-        _chip(f'{c["zh"]}·{"主色" if c["role"] == "primary" else "点缀"}') for c in view["colors"]
-    )
-    structure = "".join(_chip(s) for s in view["structure"])
-    theme = escape(view["theme"]) if view["theme"] else "—"
-    scene = escape(view["scene"]) if view["scene"] else "—"
-    scheme = escape(view["scheme_name"]) if view["scheme_name"] else "—"
+    ui = get_pack().ui
+    plan, roles, empty = ui["plan"], ui.get("role_labels", {}), ui.get("empty_value", "—")
+
+    dims_html = ""
+    for f in view["fields"]:
+        chips = "".join(
+            _chip(i["text"] + (f'·{roles.get(i["role"], i["role"])}' if i["role"] else ""))
+            for i in f["items"]
+        )
+        caption = f'（{escape(f["caption"])}）' if f["caption"] else ""
+        dims_html += f'<div class="dim"><label>{escape(f["label"])}{caption}</label>{chips or empty}</div>\n      '
     cases = "".join(
-        f'<div class="case"><img src="/image/{aid}" alt="参考案例"/></div>'
+        f'<div class="case"><img src="/image/{aid}" alt="{escape(plan["case_alt"])}"/></div>'
         for aid in similar_asset_ids
     )
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>方案预览 · 为您匹配的参考</title>
+<title>{escape(plan["page_title"])}</title>
 <style>
   :root {{ --ink:#1a1a2e; --muted:#6b6b83; --line:#ececf3; --accent:#e84a7f; }}
   * {{ box-sizing:border-box; }}
@@ -51,21 +57,17 @@ def render_plan_page(*, uploaded_asset_id: int, view: dict, similar_asset_ids: l
 </style></head>
 <body><div class="wrap">
   <div class="head">
-    <h1>这是为您这套需求匹配的参考方案</h1>
-    <p>客户发来的图 · AI 拆解 · 从我们的案例库为您选出同款参考</p>
+    <h1>{escape(plan["heading"])}</h1>
+    <p>{escape(plan["subheading"])}</p>
   </div>
   <div class="card hero">
-    <img src="/image/{uploaded_asset_id}" alt="客户需求图"/>
+    <img src="/image/{uploaded_asset_id}" alt="{escape(plan["hero_alt"])}"/>
     <div class="dims">
-      <div class="dim"><label>主题</label>{theme}</div>
-      <div class="dim"><label>场景</label>{scene}</div>
-      <div class="dim"><label>造型</label>{structure or "—"}</div>
-      <div class="dim"><label>配色（{scheme}）</label>{colors or "—"}</div>
-    </div>
+      {dims_html}</div>
   </div>
   <div class="card">
-    <h2>同款 / 相似参考案例</h2>
-    <div class="cases">{cases or "<p>暂无匹配案例</p>"}</div>
+    <h2>{escape(plan["cases_heading"])}</h2>
+    <div class="cases">{cases or "<p>" + escape(plan["no_cases"]) + "</p>"}</div>
   </div>
-  <p class="foot">演示用参考库 · 正式使用时跑的是您自己的作品图</p>
+  <p class="foot">{escape(plan["footer"])}</p>
 </div></body></html>"""

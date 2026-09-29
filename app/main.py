@@ -12,7 +12,7 @@ from app.middleware import TenantMiddleware
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="balloon-platform", version="0.1.0")
+    app = FastAPI(title="studio-asset-library", version="0.1.0")
     app.add_middleware(TenantMiddleware)
 
     @app.get("/healthz")

@@ -13,7 +13,7 @@ from typing import Iterator, Optional
 
 # 默认 None = "无租户上下文";绝不用 0 或任何魔法值承载"无",避免误当平台保留号。
 _tenant_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
-    "balloon_tenant_id", default=None
+    "assetlib_tenant_id", default=None
 )
 
 

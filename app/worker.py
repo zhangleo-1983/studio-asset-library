@@ -18,7 +18,7 @@ from app.db import platform_session
 from app.tagging.execute import run_batch
 from app.tagging.provider import TaggingProvider, get_default_provider
 
-logger = logging.getLogger("balloon.worker")
+logger = logging.getLogger("assetlib.worker")
 
 
 def _tenants_with_pending() -> list[int]:

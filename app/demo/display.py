@@ -1,7 +1,7 @@
-"""展示层:concept_key → 中文词形翻译 + 四维视图组装。
+"""展示层:concept_key → 中文词形翻译 + 视图组装。
 
-对客户永远展示中文词形(经 vocabulary.labels.zh),不吐 concept_key【A-5/Q8】。
-自由文本维(theme/color_scheme)与 unresolved 裸词形按原值展示。
+对外永远展示中文词形(经 vocabulary.labels.zh),不吐 concept_key【A-5/Q8】。
+自由文本维与 unresolved 裸词形按原值展示。展示哪些字段、顺序、显示名由行业包 pack.json 的 demo.view 声明。
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.active_config import current_config
 from app.demo.recall import UpTag
+from app.packs import get_pack
 
 
 def _vocab_versions(session: Session, tenant_id: int) -> dict:
@@ -41,22 +42,24 @@ def asset_up_tags(session: Session, tenant_id: int, asset_id: int) -> list[UpTag
     return [UpTag(dimension=r[0], value=r[1], role=r[2]) for r in rows]
 
 
-def four_dim_view(session: Session, tenant_id: int, up_tags: list[UpTag]) -> dict:
-    """把标签集组装成客户可读的四维视图(中文词形)。"""
+def dimension_view(session: Session, tenant_id: int, up_tags: list[UpTag]) -> dict:
+    """把标签集按行业包的 demo.view 组装成可读视图(中文词形)。
+
+    返回 {"fields": [{"label", "caption", "items": [{"text", "role"}]}]};
+    role 是原始角色键,展示名由 UI 文案的 role_labels 映射。
+    """
+    pack = get_pack()
     vv = _vocab_versions(session, tenant_id)
-    view: dict = {"theme": None, "scene": None, "structure": [], "colors": [], "scheme_name": None}
-    for t in up_tags:
-        if t.dimension == "theme":
-            view["theme"] = t.value
-        elif t.dimension == "color_scheme":
-            view["scheme_name"] = t.value
-        elif t.dimension == "scene":
-            view["scene"] = _zh(session, tenant_id, "scene", t.value, vv.get("scene"))
-        elif t.dimension == "structure":
-            view["structure"].append(_zh(session, tenant_id, "structure", t.value, vv.get("structure")))
-        elif t.dimension == "color":
-            view["colors"].append({
-                "zh": _zh(session, tenant_id, "color", t.value, vv.get("color")),
-                "role": t.role,
-            })
-    return view
+    fields = []
+    for spec in pack.demo.get("view", []):
+        dim = spec["dimension"]
+        items = []
+        for t in up_tags:
+            if t.dimension != dim:
+                continue
+            text_ = _zh(session, tenant_id, dim, t.value, vv.get(dim)) if spec.get("translate") else t.value
+            items.append({"text": text_, "role": t.role if spec.get("show_role") else None})
+        cap_dim = spec.get("caption_dimension")
+        caption = next((t.value for t in up_tags if t.dimension == cap_dim), None) if cap_dim else None
+        fields.append({"label": spec["label"], "caption": caption, "items": items})
+    return {"fields": fields}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>接单响应神器 · 客户发图,10 分钟回方案</title>
+<title>…</title>
 <style>
   :root{
     --ink:#181826; --muted:#7a7a92; --line:#ececf3; --bg:#f7f4fb;
@@ -58,47 +58,59 @@
 </head>
 <body>
   <div class="hero">
-    <h1>接单响应神器</h1>
-    <p>客户发来一张图,10 分钟内回一套带自家案例的匹配方案 —— 客户同时问三家,谁先出图谁拿单</p>
-    <span class="tag">拍图 → AI 拆四维 → 秒调同款案例 → 一键出方案页</span>
+    <h1 id="heroTitle"></h1>
+    <p id="heroSub"></p>
+    <span class="tag" id="heroBadge"></span>
   </div>
 
   <div class="wrap">
     <label class="drop" id="drop">
-      <div class="big">把客户发来的图拖进来 / 点击选图</div>
-      <div class="sub">AI 会拆出「主题 · 配色 · 造型 · 场景」,并从你的案例库挑出同款参考</div>
+      <div class="big" id="dropTitle"></div>
+      <div class="sub" id="dropHint"></div>
       <input type="file" id="file" accept="image/*"/>
     </label>
 
-    <div class="spin" id="spin">正在拆解客户需求、匹配你的案例库…</div>
+    <div class="spin" id="spin"></div>
 
     <div class="stage" id="stage">
-      <div class="banner" id="banner">演示缓存模式:当前用预打标结果继续演示(正式使用为实时 AI 拆解)。</div>
+      <div class="banner" id="banner"></div>
       <div class="grid">
         <div class="card">
-          <h3>客户发来的图</h3>
-          <img class="up-img" id="upImg" alt="客户图"/>
-          <div class="dim"><label>主题</label><span id="dTheme"></span></div>
-          <div class="dim"><label>场景</label><span id="dScene"></span></div>
-          <div class="dim"><label>造型</label><span id="dStruct"></span></div>
-          <div class="dim"><label>配色 <span id="dScheme" style="color:var(--muted)"></span></label><span id="dColor"></span></div>
+          <h3 id="upTitle"></h3>
+          <img class="up-img" id="upImg"/>
+          <div id="dims"></div>
         </div>
         <div class="card">
           <div class="bar">
-            <h3 style="margin:0">为你匹配的同款 / 相似案例</h3>
-            <button class="btn" id="exportBtn">一键导出方案页</button>
+            <h3 style="margin:0" id="matchesTitle"></h3>
+            <button class="btn" id="exportBtn"></button>
           </div>
           <div class="cases" id="cases"></div>
         </div>
       </div>
-      <p class="foot">这是演示参考库 —— 正式使用时,跑的是<strong>你自己的作品图</strong>。想现在就试?把你的图发我们免费打一批。</p>
+      <p class="foot" id="footer"></p>
     </div>
   </div>
 
 <script>
-const drop=document.getElementById('drop'), file=document.getElementById('file');
-const spin=document.getElementById('spin'), stage=document.getElementById('stage');
-let currentAssetId=null, currentSimilar=[];
+const $=id=>document.getElementById(id);
+const drop=$('drop'), file=$('file'), spin=$('spin'), stage=$('stage');
+let currentAssetId=null, currentSimilar=[], UI=null;
+
+function esc(t){const d=document.createElement('div'); d.textContent=t; return d.innerHTML;}
+
+async function init(){
+  UI=await (await fetch('/ui.json')).json();
+  const a=UI.app;
+  document.title=a.page_title;
+  $('heroTitle').textContent=a.hero_title; $('heroSub').textContent=a.hero_subtitle;
+  $('heroBadge').textContent=a.hero_badge; $('dropTitle').textContent=a.drop_title;
+  $('dropHint').textContent=a.drop_hint; $('spin').textContent=a.spinner;
+  $('banner').textContent=a.banner_offline; $('upTitle').textContent=a.upload_card_title;
+  $('upImg').alt=a.upload_alt; $('matchesTitle').textContent=a.matches_title;
+  $('exportBtn').textContent=a.export_button; $('footer').textContent=a.footer;
+}
+const ready=init();
 
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('hover');});
 drop.addEventListener('dragleave',()=>drop.classList.remove('hover'));
@@ -106,10 +118,19 @@ drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('hover
   if(e.dataTransfer.files[0]) send(e.dataTransfer.files[0]);});
 file.addEventListener('change',e=>{if(e.target.files[0]) send(e.target.files[0]);});
 
-function chips(el, arr, cls){el.innerHTML = (arr&&arr.length)
-  ? arr.map(x=>`<span class="chip ${cls||''}">${x}</span>`).join('') : '—';}
+function renderDims(view){
+  const empty=UI.empty_value||'—', roles=UI.role_labels||{};
+  $('dims').innerHTML=(view.fields||[]).map(f=>{
+    const chips=f.items.length
+      ? f.items.map(i=>`<span class="chip${i.role?' v2':''}">${esc(i.text+(i.role?'·'+(roles[i.role]||i.role):''))}</span>`).join('')
+      : empty;
+    const cap=f.caption?` <span style="color:var(--muted)">· ${esc(f.caption)}</span>`:'';
+    return `<div class="dim"><label>${esc(f.label)}${cap}</label>${chips}</div>`;
+  }).join('');
+}
 
 async function send(f){
+  await ready;
   stage.classList.remove('show'); spin.classList.add('show');
   const fd=new FormData(); fd.append('file', f);
   const t0=performance.now();
@@ -118,21 +139,15 @@ async function send(f){
   const ms=Math.round(performance.now()-t0);
   spin.classList.remove('show');
   currentAssetId=d.asset_id; currentSimilar=d.similar||[];
-  document.getElementById('upImg').src='/image/'+d.asset_id;
-  const v=d.tags||{};
-  document.getElementById('dTheme').textContent=v.theme||'—';
-  document.getElementById('dScene').textContent=v.scene||'—';
-  chips(document.getElementById('dStruct'), v.structure);
-  document.getElementById('dScheme').textContent=v.scheme_name?('· '+v.scheme_name):'';
-  chips(document.getElementById('dColor'),
-        (v.colors||[]).map(c=>c.zh+(c.role==='primary'?'·主色':'·点缀')), 'v2');
-  const cs=document.getElementById('cases');
-  cs.innerHTML=currentSimilar.map(id=>`<img src="/image/${id}" alt="参考案例"/>`).join('')||'暂无匹配';
-  document.getElementById('banner').classList.toggle('show', !!d.degraded);
+  $('upImg').src='/image/'+d.asset_id;
+  renderDims(d.tags||{});
+  $('cases').innerHTML=currentSimilar.map(id=>`<img src="/image/${id}" alt="${esc(UI.app.match_alt)}"/>`).join('')
+    ||esc(UI.app.no_match);
+  $('banner').classList.toggle('show', !!d.degraded);
   stage.classList.add('show');
   console.log('round-trip ms=',ms);
 }
-document.getElementById('exportBtn').addEventListener('click',()=>{
+$('exportBtn').addEventListener('click',()=>{
   if(currentAssetId!=null)
     window.open('/export/'+currentAssetId+'?similar='+currentSimilar.join(','),'_blank');
 });

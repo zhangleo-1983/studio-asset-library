@@ -1,5 +1,6 @@
-# balloon-platform 常用目标。DATABASE_URL 可覆盖。
-DATABASE_URL ?= postgresql+psycopg2://localhost:5432/balloon_platform
+# studio-asset-library 常用目标。DATABASE_URL 可覆盖。
+# 行业包:INDUSTRY_PACK=<packs/ 下的目录名>(默认见 app/config.py),如 `INDUSTRY_PACK=<id> make demo-seed`。
+DATABASE_URL ?= postgresql+psycopg2://localhost:5432/asset_library
 export DATABASE_URL
 
 PY := .venv/bin/python
@@ -15,17 +16,20 @@ migrate:
 	.venv/bin/alembic upgrade head
 
 seed:
-	.venv/bin/balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
+	.venv/bin/assetlib-seed --tenant-id 1 --slug demo_tenant --display-name "Demo tenant"
 
 # 一键闭环演示(mock provider,无需密钥):上传→入库→打标→落 tag→复核→修正
+# 演示脚本由行业包提供(pack.json demo.loop_script);空骨架包无脚本则跳过
 demo: migrate
-	$(PY) scripts/demo_loop.py
+	$(PY) scripts/pack_run.py loop
 
 # 从零到闭环:建库 + 演示
 loop: migrate demo
 
+# 核心测试(tests/,用默认行业包)+ 每个行业包自带测试(packs/<id>/tests,用该包)
 test:
 	.venv/bin/pytest -q
+	@for d in packs/*/tests; do [ -d "$$d" ] || continue; p=$$(basename $$(dirname $$d)); echo "== pack tests: $$p"; INDUSTRY_PACK=$$p .venv/bin/pytest -q $$d || exit 1; done
 
 # 真实 Qwen 冒烟(需 .env 的 DASHSCOPE_API_KEY);IMAGE=/path/to.jpg
 smoke: migrate
@@ -37,16 +41,16 @@ compose-up:
 compose-down:
 	docker compose down -v
 
-# ── 零级验证 demo(demo/zero-validation 分支)────────────────────────
+# ── demo(数据集/文案/维度取自行业包)────────────────────────────
 export STORAGE_BACKEND ?= local
-export LOCAL_STORAGE_ROOT ?= /tmp/balloon-demo-storage
+export LOCAL_STORAGE_ROOT ?= /tmp/assetlib-demo-storage
 export DEMO_ASSETS_DIR ?= demo_assets
 
 .PHONY: demo-assets demo-seed demo-web internal-qa-seed
 
-# 生成自有版权合规占位素材(正式演示前换真实合规图,重跑本目标)
+# 生成行业包自带的演示素材(pack.json demo.assets.generator;正式演示前换真实合规图)
 demo-assets:
-	$(PY) scripts/gen_demo_assets.py
+	$(PY) scripts/pack_run.py assets
 
 # 一键:建库 + 合规素材 + 只入合规库并断言计数(验收①)。DEMO_MOCK=1 走确定性 provider
 demo-seed: migrate demo-assets
@@ -56,9 +60,9 @@ demo-seed: migrate demo-assets
 demo-web:
 	.venv/bin/uvicorn app.demo.server:app --host 0.0.0.0 --port 8100
 
-# 内部质量目测集(69 张)——强制独立库,永不进 demo 实例/入仓。DIR=<LOCAL_IMAGE_DIR>
+# 内部质量目测集(来源未核实的本地图)——强制独立库,永不进 demo 实例/入仓。DIR=/path/to/images
 internal-qa-seed:
-	DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_internal_qa \
+	DATABASE_URL=postgresql+psycopg2://localhost:5432/asset_library_internal_qa \
 	  $(PY) scripts/internal_qa_seed.py --dir $(DIR)
 
 # 词表对齐(演示前置):给 demo 补词条。DIM= KEY= ZH=

@@ -1,0 +1,28 @@
+{
+  "pack_format": 1,
+  "id": "template",
+  "title": "行业包模板(空骨架)",
+  "description": "复制本目录为 packs/<你的行业>/ 后按 FIELDS.md 逐项填写。空骨架:无词表、无演示素材,但系统可用它正常启动。",
+  "industry": "template",
+  "prompt": {
+    "file": "prompt.txt",
+    "version": "tagging_v1",
+    "slots": {
+      "persona": "(填写:该行业的资深图库管理员,例如「某某行业的素材管理员」)"
+    }
+  },
+  "output_schema": {
+    "file": "output_schema.json",
+    "version": "tagging_output_v1"
+  },
+  "taxonomy": "taxonomy.json",
+  "ui": "ui.json",
+  "tagging_config": {},
+  "demo": {
+    "tenant_slug": "demo_tenant",
+    "tenant_name": "Demo tenant",
+    "assets": null,
+    "view": [],
+    "recall": []
+  }
+}

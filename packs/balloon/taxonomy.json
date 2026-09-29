@@ -1,0 +1,272 @@
+{
+  "_doc": "分类体系:维度键限定为平台保留键(见 docs/industry-packs.md);词表 concept_key 一经上线不改,只改 labels。",
+  "dimensions": [
+    {
+      "key": "structure",
+      "label": "造型",
+      "kind": "constrained",
+      "multi": true,
+      "vocabulary": [
+        {
+          "concept_key": "column",
+          "labels": {
+            "zh": "立柱"
+          }
+        },
+        {
+          "concept_key": "arch",
+          "labels": {
+            "zh": "拱门"
+          }
+        },
+        {
+          "concept_key": "flowerbox",
+          "labels": {
+            "zh": "花盒"
+          }
+        }
+      ],
+      "aliases": [
+        {
+          "alias": "气球花盒",
+          "concept_key": "flowerbox"
+        }
+      ]
+    },
+    {
+      "key": "color",
+      "label": "配色",
+      "kind": "constrained",
+      "multi": true,
+      "roles": [
+        "primary",
+        "accent"
+      ],
+      "vocabulary": [
+        {
+          "concept_key": "pink",
+          "labels": {
+            "zh": "粉"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "white",
+          "labels": {
+            "zh": "白"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "red",
+          "labels": {
+            "zh": "红"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "blue",
+          "labels": {
+            "zh": "蓝"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "green",
+          "labels": {
+            "zh": "绿"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "yellow",
+          "labels": {
+            "zh": "黄"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "purple",
+          "labels": {
+            "zh": "紫"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "black",
+          "labels": {
+            "zh": "黑"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "silver",
+          "labels": {
+            "zh": "银"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "gold",
+          "labels": {
+            "zh": "金"
+          },
+          "color_kind": "simple"
+        },
+        {
+          "concept_key": "dopamine",
+          "labels": {
+            "zh": "多巴胺"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "pearl_white",
+          "labels": {
+            "zh": "珠光白"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "pearl_pink",
+          "labels": {
+            "zh": "珠光粉"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "chrome_rose_gold",
+          "labels": {
+            "zh": "铬玫瑰金"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "chrome_champagne_gold",
+          "labels": {
+            "zh": "铬香槟金"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "papaya_yellow",
+          "labels": {
+            "zh": "木瓜黄"
+          },
+          "color_kind": "compound"
+        },
+        {
+          "concept_key": "chrome_gold",
+          "labels": {
+            "zh": "铬金"
+          },
+          "color_kind": "compound"
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "key": "scene",
+      "label": "场景",
+      "kind": "constrained",
+      "multi": false,
+      "vocabulary": [
+        {
+          "concept_key": "birthday",
+          "labels": {
+            "zh": "生日宴"
+          }
+        },
+        {
+          "concept_key": "longevity_feast",
+          "labels": {
+            "zh": "寿宴"
+          }
+        },
+        {
+          "concept_key": "baby_banquet",
+          "labels": {
+            "zh": "宝宝宴"
+          }
+        },
+        {
+          "concept_key": "mall_display",
+          "labels": {
+            "zh": "商场美陈"
+          }
+        },
+        {
+          "concept_key": "campus_event",
+          "labels": {
+            "zh": "校园活动"
+          }
+        },
+        {
+          "concept_key": "grand_opening",
+          "labels": {
+            "zh": "开业"
+          }
+        },
+        {
+          "concept_key": "wedding",
+          "labels": {
+            "zh": "婚礼"
+          }
+        },
+        {
+          "concept_key": "other",
+          "labels": {
+            "zh": "其他"
+          }
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "key": "theme",
+      "label": "主题",
+      "kind": "free_text",
+      "multi": false
+    },
+    {
+      "key": "color_scheme",
+      "label": "配色简称",
+      "kind": "free_text",
+      "multi": false
+    }
+  ],
+  "extraction": [
+    {
+      "dimension": "structure",
+      "path": "structure_types",
+      "coerce": "str_list"
+    },
+    {
+      "dimension": "color",
+      "path": "color_scheme.primary",
+      "role": "primary",
+      "coerce": "str_list"
+    },
+    {
+      "dimension": "color",
+      "path": "color_scheme.accent",
+      "role": "accent",
+      "coerce": "str_list"
+    },
+    {
+      "dimension": "scene",
+      "path": "scene_guess",
+      "coerce": "str"
+    },
+    {
+      "dimension": "theme",
+      "path": "theme",
+      "coerce": "scalar"
+    },
+    {
+      "dimension": "color_scheme",
+      "path": "color_scheme.scheme_name",
+      "coerce": "str"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "_doc": "见 FIELDS.md。dimensions 为空 = 尚未定义任何维度。",
+  "dimensions": [],
+  "extraction": []
+}

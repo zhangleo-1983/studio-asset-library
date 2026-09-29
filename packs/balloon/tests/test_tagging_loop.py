@@ -16,6 +16,8 @@ from app.tagging.execute import enqueue_tagging_task, process_task, run_batch
 from app.tagging.knowledge import register_tagging_config
 from tests import fixtures as fx
 
+import samples
+
 
 def _setup_tenant(tid: int, slug: str) -> None:
     seed_tenant(tid, slug, slug)
@@ -46,7 +48,7 @@ def test_happy_path_full_loop():
         # 去重:同图再传 → 跳过
         assert ingest_asset(img, mime_type="image/png", original_ext="png").outcome == "skipped_dup"
         task_id = enqueue_tagging_task(r.asset_id, run_id="run_11")
-        n = run_batch(fx.FakeProvider([fx.as_raw_text(fx.VALID, wrap_prose=True)]))
+        n = run_batch(fx.FakeProvider([fx.as_raw_text(samples.VALID, wrap_prose=True)]))
     assert n == 1
 
     rows = _tags(tid, r.asset_id)
@@ -86,7 +88,7 @@ def test_happy_path_full_loop():
 def test_coerce_variants_do_not_break():
     tid = 12
     _setup_tenant(tid, "loop12")
-    for i, (variant, expect_theme) in enumerate([(fx.THEME_AS_OBJECT, "爱心"), (fx.BARE_STRINGS, "爱心")]):
+    for i, (variant, expect_theme) in enumerate([(samples.THEME_AS_OBJECT, "爱心"), (samples.BARE_STRINGS, "爱心")]):
         with tenant_context(tid):
             r = ingest_asset(fx.make_png_bytes(color=(1, 2, 100 + i)),  # 每变体一张不同图,避免去重
                              mime_type="image/png", original_ext="png")
@@ -106,7 +108,7 @@ def test_out_of_vocab_becomes_unresolved_and_enters_review():
     with tenant_context(tid):
         r = ingest_asset(fx.make_png_bytes(color=(9, 9, 9)), mime_type="image/png", original_ext="png")
         enqueue_tagging_task(r.asset_id, run_id="run_13")
-        run_batch(fx.FakeProvider([fx.as_raw_text(fx.OUT_OF_VOCAB)]))
+        run_batch(fx.FakeProvider([fx.as_raw_text(samples.OUT_OF_VOCAB)]))
         q = review.review_queue(dimension="structure")
     struct = _tags(tid, r.asset_id, "structure")
     assert ("structure", "背景墙", None, "unresolved") in {(d, v, role, st) for (d, v, role, st, *_ ) in struct}
@@ -120,7 +122,7 @@ def test_alias_hit_resolves_to_concept_key():
     with tenant_context(tid):
         r = ingest_asset(fx.make_png_bytes(color=(7, 7, 7)), mime_type="image/png", original_ext="png")
         enqueue_tagging_task(r.asset_id, run_id="run_14")
-        run_batch(fx.FakeProvider([fx.as_raw_text(fx.ALIAS_HIT)]))
+        run_batch(fx.FakeProvider([fx.as_raw_text(samples.ALIAS_HIT)]))
     structs = {v for (d, v, *_ ) in _tags(tid, r.asset_id, "structure")}
     assert "flowerbox" in structs  # 气球花盒 → flowerbox(经 alias_map)
 
@@ -154,7 +156,7 @@ def test_manual_corrections_add_update_remove_restore():
     with tenant_context(tid):
         r = ingest_asset(fx.make_png_bytes(color=(2, 4, 6)), mime_type="image/png", original_ext="png")
         enqueue_tagging_task(r.asset_id, run_id="run_17")
-        run_batch(fx.FakeProvider([fx.as_raw_text(fx.OUT_OF_VOCAB)]))
+        run_batch(fx.FakeProvider([fx.as_raw_text(samples.OUT_OF_VOCAB)]))
         # update:unresolved 背景墙 → 转正(此处沿用现有 concept_key column 作示例)
         unresolved = [i for i in review.review_queue("structure") if i.status == "unresolved"][0]
         corrections.update_tag(unresolved.tag_id, "column", corrected_by=1, reason="归类为立柱")

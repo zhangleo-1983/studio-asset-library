@@ -12,10 +12,9 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 RUN pip install --upgrade pip && pip install -e .
 
-# alembic 配置、迁移、知识资产与脚本(prompt 原文按路径加载,须随镜像)
+# alembic 配置、行业包(提示词/词表/UI 文案按路径加载,须随镜像)与脚本
 COPY alembic.ini ./
-COPY prompts ./prompts
-COPY schema ./schema
+COPY packs ./packs
 COPY scripts ./scripts
 
 # 默认入口 = api;worker 在 compose 里覆盖 command

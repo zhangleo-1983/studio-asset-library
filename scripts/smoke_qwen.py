@@ -5,8 +5,8 @@ CI **不** 跑本脚本(CI 全程 mock、无密钥)。
 
 用法:
     export DASHSCOPE_API_KEY=...   # 或写进 .env
-    export DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_platform
-    python scripts/smoke_qwen.py --image /path/to/balloon.jpg --tenant 1
+    export DATABASE_URL=postgresql+psycopg2://localhost:5432/asset_library
+    python scripts/smoke_qwen.py --image /path/to/sample.jpg --tenant 1
 """
 from __future__ import annotations
 

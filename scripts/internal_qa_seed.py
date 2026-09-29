@@ -1,13 +1,13 @@
-"""内部打标质量目测集(69 张 C1)—— **与 demo 完全隔离**。
+"""内部打标质量目测集(来源/权属未核实的本地图片)—— **与 demo 完全隔离**。
 
-红线(备忘录 v1.1 §八 + 评审 P0):C1 疑似示例客户系素材,对外禁用。本脚本:
+红线:来源或权属未核实的图片对外禁用。本脚本:
   · 强制独立库(DATABASE_URL 必须含 'internal_qa',否则拒跑)——**永不写 demo 实例**;
-  · 图片留在 <LOCAL_IMAGE_DIR> 原地,产物永不入仓(demo_assets/ 只装合规素材);
+  · 图片留在本地原目录,产物永不入仓(demo_assets/ 只装合规素材);
   · 仅供内部打标准确率目测,结果不得对外展示/传播。
 用法:
-  createdb balloon_internal_qa
-  DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_internal_qa \
-    python scripts/internal_qa_seed.py --dir <LOCAL_IMAGE_DIR>
+  createdb asset_library_internal_qa
+  DATABASE_URL=postgresql+psycopg2://localhost:5432/asset_library_internal_qa \
+    python scripts/internal_qa_seed.py --dir /path/to/local/images
 """
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ def main() -> None:
     db = os.environ.get("DATABASE_URL", "")
     if "internal_qa" not in db:
         raise SystemExit(
-            "拒绝执行:DATABASE_URL 必须指向独立的 internal_qa 库(红线:C1 永不进 demo 实例)。\n"
-            "例:DATABASE_URL=postgresql+psycopg2://localhost:5432/balloon_internal_qa"
+            "拒绝执行:DATABASE_URL 必须指向独立的 internal_qa 库(红线:未核实来源的图片永不进 demo 实例)。\n"
+            "例:DATABASE_URL=postgresql+psycopg2://localhost:5432/asset_library_internal_qa"
         )
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", required=True, help="内部图目录(如 <LOCAL_IMAGE_DIR>),留原地不入仓")
+    ap.add_argument("--dir", required=True, help="本地图目录,留原地不入仓")
     ap.add_argument("--limit", type=int, default=0, help="限量,0=全部")
     args = ap.parse_args()
 

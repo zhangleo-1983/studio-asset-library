@@ -1,7 +1,6 @@
-"""打标测试夹具:录制的模型输出样例(含"不守 schema"变体)+ Fake provider + 造图。
+"""打标测试夹具(与行业无关部分):Fake provider + 造图 + 原始文本包装。
 
-CI 全程用 FakeProvider,不出现任何真实密钥。样例必须覆盖旧 CLAUDE.md 第 5 条的漂移:
-theme 被包成对象、structure_types/primary 是裸字符串、词表外词形、JSON 外裹解释文字。
+CI 全程用 FakeProvider,不出现任何真实密钥。行业相关的录制样例在各行业包的 tests/samples.py。
 """
 from __future__ import annotations
 
@@ -9,49 +8,6 @@ import io
 import json
 
 from app.tagging.provider import CallResult, TaggingProvider
-
-# ── 正常输出:结构/配色/场景/主题/配色名俱全,词表内 ────────────────
-VALID = {
-    "image_id": "sample",
-    "theme": "爱心",
-    "theme_type": "通用元素",
-    "color_scheme": {"primary": ["红", "金"], "accent": ["白"], "scheme_name": "红金"},
-    "structure_types": ["立柱", "拱门"],
-    "scene_guess": "婚礼",
-    "suggested_filename": "爱心主题红金配色婚礼立柱",
-    "confidence": 0.95,
-    "needs_review": False,
-    "notes": "",
-}
-
-# ── 变体1:theme 被包成对象(应被 coerce_theme_str 摘成 "爱心")────────
-THEME_AS_OBJECT = {
-    **VALID,
-    "theme": {"name": "爱心", "theme_type": "通用元素"},
-}
-
-# ── 变体2:structure_types / primary 是裸字符串(应被 coerce_str_list 包成数组)──
-BARE_STRINGS = {
-    **VALID,
-    "color_scheme": {"primary": "多巴胺", "accent": [], "scheme_name": "多巴胺"},
-    "structure_types": "立柱",
-}
-
-# ── 变体3:词表外造型(背景墙)→ 归一化反查失败 → unresolved ──────────
-OUT_OF_VOCAB = {
-    **VALID,
-    "structure_types": ["背景墙"],
-    "confidence": 0.4,
-    "needs_review": True,
-}
-
-# ── 变体4:别名命中(气球花盒 → flowerbox)+ 低置信度 ────────────────
-ALIAS_HIT = {
-    **VALID,
-    "structure_types": ["气球花盒"],
-    "confidence": 0.5,
-}
-
 
 def as_raw_text(obj: dict, *, wrap_prose: bool = False) -> str:
     """把样例 dict 变成模型"原始文本"。wrap_prose=True 时外裹解释文字+代码块围栏,考验提取。"""

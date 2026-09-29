@@ -1,11 +1,11 @@
 name: CI
 
 # 每次 push / PR 触发。两个 job:
-#   test    —— 起 PG15,alembic upgrade head + balloon-seed + pytest(checklist 实测复现搬进 CI)
+#   test    —— 起 PG15,alembic upgrade head + assetlib-seed + pytest(checklist 实测复现搬进 CI)
 #   compose —— docker compose up --build,轮询 api 健康检查直到通过,再 compose down
 #
 # 注意:全程无任何真实密钥。骨架期 compose 不依赖 OSS/百炼凭据(OSS 配置默认空、compose 不引用);
-# postgres 的 balloon/balloon 是 CI/本地一次性口令,非生产密钥。若将来 compose 需要外部凭据启动,
+# postgres 的 assetlib/assetlib 是 CI/本地一次性口令,非生产密钥。若将来 compose 需要外部凭据启动,
 # 那是骨架 bug,应修骨架,而非往 CI 塞 secret。
 
 on:
@@ -19,21 +19,21 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: balloon
-          POSTGRES_PASSWORD: balloon
-          POSTGRES_DB: balloon_platform
+          POSTGRES_USER: assetlib
+          POSTGRES_PASSWORD: assetlib
+          POSTGRES_DB: asset_library
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U balloon -d balloon_platform"
+          --health-cmd "pg_isready -U assetlib -d asset_library"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
     env:
       # 主库(建库实测复现用)
-      DATABASE_URL: postgresql+psycopg2://balloon:balloon@localhost:5432/balloon_platform
-      # pytest conftest 从此派生 balloon_platform_test(带凭据)
-      TEST_ADMIN_URL: postgresql+psycopg2://balloon:balloon@localhost:5432/postgres
+      DATABASE_URL: postgresql+psycopg2://assetlib:assetlib@localhost:5432/asset_library
+      # pytest conftest 从此派生 asset_library_test(带凭据)
+      TEST_ADMIN_URL: postgresql+psycopg2://assetlib:assetlib@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -46,18 +46,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: 从零建库实测复现(alembic upgrade head + balloon-seed)
+      - name: 从零建库实测复现(alembic upgrade head + assetlib-seed),逐个行业包
         run: |
+          set -e
           alembic upgrade head
-          balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
-          # 幂等重放应跳过
-          balloon-seed --tenant-id 1 --slug demo_tenant --display-name 示例客户
+          t=1
+          for d in packs/*/; do
+            p=$(basename "$d")
+            INDUSTRY_PACK=$p assetlib-seed --tenant-id $t --slug "pack_$p" --display-name "Demo $p"
+            # 幂等重放应跳过
+            INDUSTRY_PACK=$p assetlib-seed --tenant-id $t --slug "pack_$p" --display-name "Demo $p"
+            t=$((t+1))
+          done
 
-      - name: 一键闭环演示(mock provider,无密钥):上传→打标→落 tag→复核→修正
-        run: python scripts/demo_loop.py
+      - name: 一键闭环演示(mock provider,无密钥),逐个行业包(无演示脚本的包自动跳过)
+        run: |
+          set -e
+          for d in packs/*/; do INDUSTRY_PACK=$(basename "$d") python scripts/pack_run.py loop; done
 
-      - name: 集成测试(骨架 + 打标闭环;provider 全程 mock)
-        run: pytest -q
+      - name: 集成测试:核心(默认包)+ 各行业包自带测试;provider 全程 mock
+        run: |
+          set -e
+          pytest -q
+          for d in packs/*/tests; do
+            [ -d "$d" ] || continue
+            INDUSTRY_PACK=$(basename "$(dirname "$d")") pytest -q "$d"
+          done
 
   compose:
     runs-on: ubuntu-latest

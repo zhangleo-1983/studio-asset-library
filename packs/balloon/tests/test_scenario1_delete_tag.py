@@ -15,9 +15,11 @@ from app.tagging.execute import enqueue_tagging_task, run_batch
 from app.tagging.knowledge import register_tagging_config
 from tests import fixtures as fx
 
+import samples
+
 # 模型对同一张图输出 structure=立柱 + 拱门;画面实际只有立柱,"拱门"是幻觉。
 HALLUCINATION = {
-    **fx.VALID,
+    **samples.VALID,
     "structure_types": ["立柱", "拱门"],
     "color_scheme": {"primary": ["红"], "accent": [], "scheme_name": "红"},
     "theme": None,

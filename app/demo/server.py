@@ -1,6 +1,7 @@
-"""demo 单页 web 服务(销售样板间)。5 端点,hardcode tenant=1,无鉴权。
+"""demo 单页 web 服务(样板间)。6 端点,hardcode tenant=1,无鉴权。
 
-链路:上传客户图 → AI 拆四维标签 → 演示图库召回同款 → 一键导出方案页。
+链路:上传图 → AI 拆维度标签 → 演示图库召回同款 → 一键导出方案页。
+页面文案、维度视图、召回权重、演示素材目录均取自 INDUSTRY_PACK 选用的行业包。
 断网兜底【验收④】:DEMO_FORCE_OFFLINE=1 或真实调用失败 → 用预打标缓存的样本结果继续演示,
 不 dead-air;返回 degraded=true,前端标"演示缓存模式"。
 
@@ -19,15 +20,18 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from app.context import tenant_context
 from app.db import tenant_session
 from app.demo import DEMO_TENANT
-from app.demo.display import asset_up_tags, four_dim_view
+from app.demo.display import asset_up_tags, dimension_view
 from app.demo.export import render_plan_page
 from app.demo.mock_provider import ManifestProvider
 from app.demo.recall import UpTag, recall_similar
+from app.packs import get_pack
 from app.storage import get_storage_backend
 
 _STATIC = Path(__file__).resolve().parent / "static"
 _DEMO_ASSETS = Path(os.environ.get("DEMO_ASSETS_DIR", "demo_assets"))
-_FALLBACK = _DEMO_ASSETS / "fallback"
+_ASSETS_CFG = (get_pack().demo_assets or {})
+_LIBRARY = _DEMO_ASSETS / _ASSETS_CFG.get("library_subdir", "library")
+_FALLBACK = _DEMO_ASSETS / _ASSETS_CFG.get("fallback_subdir", "fallback")
 
 
 def _offline() -> bool:
@@ -42,7 +46,7 @@ def _live_provider():
 
         from app.demo.mock_provider import ManifestProvider
         merged: dict = {}
-        for mf in (_DEMO_ASSETS / "library" / "manifest.json",
+        for mf in (_LIBRARY / "manifest.json",
                    _FALLBACK / "manifest.json"):
             if mf.exists():
                 merged.update(_json.loads(mf.read_text(encoding="utf-8")))
@@ -56,17 +60,26 @@ def _live_provider():
 
 
 def _fallback_tags() -> list[UpTag]:
-    """预打标缓存:兜底样本的四维标签(断网时用)。"""
-    manifest = json.loads((_FALLBACK / "fallback_tags.json").read_text(encoding="utf-8"))
+    """预打标缓存:兜底样本的标签(断网时用)。"""
+    path = _FALLBACK / "fallback_tags.json"
+    if not path.exists():  # 行业包未提供演示素材:兜底为空标签集
+        return []
+    manifest = json.loads(path.read_text(encoding="utf-8"))
     return [UpTag(dimension=t["dimension"], value=t["value"], role=t.get("role")) for t in manifest]
 
 
 def create_demo_app() -> FastAPI:
-    app = FastAPI(title="接单响应神器 · demo", docs_url=None, redoc_url=None)
+    ui = get_pack().ui
+    app = FastAPI(title=ui["app"]["api_title"], docs_url=None, redoc_url=None)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return (_STATIC / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/ui.json")
+    def ui_json() -> JSONResponse:
+        """页面文案(来自行业包 ui.json),前端据此渲染,静态页本身不含任何行业文案。"""
+        return JSONResponse(get_pack().ui)
 
     @app.get("/image/{asset_id}")
     def image(asset_id: int):
@@ -116,7 +129,7 @@ def create_demo_app() -> FastAPI:
                     degraded = True  # 实时失败也走兜底
                     up = _fallback_tags()
             with tenant_session() as s4:
-                view = four_dim_view(s4, DEMO_TENANT, up)
+                view = dimension_view(s4, DEMO_TENANT, up)
                 hits = recall_similar(s4, DEMO_TENANT, up, exclude_asset_id=r.asset_id, limit=6)
         return JSONResponse({
             "asset_id": r.asset_id,
@@ -136,7 +149,7 @@ def create_demo_app() -> FastAPI:
     def export(asset_id: int, similar: Optional[str] = None):
         with tenant_context(DEMO_TENANT), tenant_session() as s:
             up = asset_up_tags(s, DEMO_TENANT, asset_id)
-            view = four_dim_view(s, DEMO_TENANT, up)
+            view = dimension_view(s, DEMO_TENANT, up)
             if similar:
                 sim_ids = [int(x) for x in similar.split(",") if x.strip().isdigit()]
             else:
