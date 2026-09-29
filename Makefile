@@ -1,5 +1,6 @@
 # studio-asset-library 常用目标。DATABASE_URL 可覆盖。
-# 行业包:INDUSTRY_PACK=<packs/ 下的目录名>(默认见 app/config.py),如 `INDUSTRY_PACK=<id> make demo-seed`。
+# 行业包:INDUSTRY_PACK=<packs/ 下的目录名>。部署默认值是 template(空骨架,见 app/config.py);
+# 下面的 demo 系列目标默认用完整示例包 balloon,可用 `INDUSTRY_PACK=<id> make demo-seed` 覆盖。
 DATABASE_URL ?= postgresql+psycopg2://localhost:5432/asset_library
 export DATABASE_URL
 
@@ -47,6 +48,9 @@ export LOCAL_STORAGE_ROOT ?= /tmp/assetlib-demo-storage
 export DEMO_ASSETS_DIR ?= demo_assets
 
 .PHONY: demo-assets demo-seed demo-web internal-qa-seed
+
+# demo 系列目标(含 demo / loop)默认使用示例包;部署与其余目标沿用 template 默认值
+demo loop demo-assets demo-seed demo-web demo-vocab-add: export INDUSTRY_PACK ?= balloon
 
 # 生成行业包自带的演示素材(pack.json demo.assets.generator;正式演示前换真实合规图)
 demo-assets:

@@ -24,20 +24,36 @@
 | 种子 | `app/seed.py` | 参数化可重放租户种子(migration §4 步骤 0);词表/配置取自行业包 |
 | 行业包 | `app/packs.py` + `packs/<id>/` | 分类体系 / 提示词模板 / UI 文案 / 演示数据集指向;`INDUSTRY_PACK` 选用 |
 
-## 从零建库(一条命令跑通)
+## 快速开始(用完整示例包跑通 demo)
 
 前置:一个可连的 PostgreSQL 15。
 
 ```bash
 uv venv --python 3.11 && uv pip install -e ".[dev]"
 export DATABASE_URL="postgresql+psycopg2://localhost:5432/asset_library"
-export INDUSTRY_PACK=template     # 行业包:packs/ 下的目录名;template 是空骨架;随仓库提供的包见 packs/README.md
+export INDUSTRY_PACK=balloon      # 完整示例包(见 packs/README.md);make demo 系列目标默认也用它
 
-# 建库结构(逐表 DDL + REVOKE 只增表 + 固化 tenant_id=0)
+make migrate                      # 建库结构(逐表 DDL + REVOKE 只增表 + 固化 tenant_id=0)
+DEMO_MOCK=1 make demo-seed        # 生成演示素材 + 入库 + 打标(mock provider,无需密钥)
+make demo-web                     # 演示页 http://localhost:8100
+make demo                         # 打标闭环演示(mock provider)
+```
+
+### `balloon` 与 `template` 的区别
+
+| | `INDUSTRY_PACK=balloon` | `INDUSTRY_PACK=template` |
+|---|---|---|
+| 定位 | 完整示例:词表、提示词、UI 文案、演示素材生成器、专属测试齐全 | 空骨架:结构齐全,无词表、无演示素材 |
+| 用途 | 快速体验、学习、当作写新行业的参考 | **部署默认值**;复制它写自己的行业包 |
+| 何时选 | 本地试玩、演示(`make demo*` 默认) | 生产/部署(`app/config.py`、`.env.example`、compose 的默认) |
+
+## 部署/生产
+
+部署默认 `INDUSTRY_PACK=template`,你需要先写好自己的行业包(复制 `packs/template/`,按其 `FIELDS.md` 填写),再把 `INDUSTRY_PACK` 指向它:
+
+```bash
 .venv/bin/alembic upgrade head
-
-# 种子首个租户(可重放脚本;第二租户换参数重放同一命令;词表取自所选行业包)
-.venv/bin/assetlib-seed --tenant-id 1 --slug demo_tenant --display-name "Demo tenant"
+.venv/bin/assetlib-seed --tenant-id 1 --slug demo_tenant --display-name "Demo tenant"   # 词表取自所选包
 ```
 
 ## 测试
