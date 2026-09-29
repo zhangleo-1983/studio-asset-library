@@ -41,8 +41,7 @@
 **牵连:** 同一问题也适用于 `vocabulary_version` 的"当期版本"选取(查询② 已按 version_no 比较,
 但"当期 = 哪一版"的生效指针同样未定);两者宜一并裁决,口径统一。
 
-**关联:** data-model §3.7【N3】(config.payload.vocab_versions 批次内锁定)、seed.py 的 config_version 播种、
-skeleton-checklist §5 取舍 1。
+**关联:** data-model §3.7【N3】(config.payload.vocab_versions 批次内锁定)、seed.py 的 config_version 播种。
 
 ---
 

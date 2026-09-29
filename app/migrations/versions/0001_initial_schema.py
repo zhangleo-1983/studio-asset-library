@@ -4,8 +4,8 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-07-05
 
-逐表照搬 docs/data-model.md §3 的 DDL,不增不减不改名。表名/约束名/索引名与文档 1:1,
-对照见 docs/skeleton-checklist.md。建表顺序按外键依赖调整(config_version/vocabulary_version
+逐表照搬 docs/data-model.md §3 的 DDL,不增不减不改名。表名/约束名/索引名与文档 1:1。
+建表顺序按外键依赖调整(config_version/vocabulary_version
 先于引用它们的 task/tag),仅调顺序、不改 DDL 内容。
 
 本迁移额外承担 migration.md §4 步骤 0 中"固化在建库迁移内"的两件事:

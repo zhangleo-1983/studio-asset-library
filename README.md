@@ -55,7 +55,6 @@ docker compose up --build     # api / worker / postgres(无 Redis)
 > 状态:**已由 CI 每次提交自动验证**(`compose` job:`docker compose up -d --build` → 轮询
 > `/healthz` 通过 → `compose down`),badge 见页首。
 
-## 交付自证
+## 对照校验
 
-[`docs/skeleton-checklist.md`](docs/skeleton-checklist.md):alembic DDL 与 data-model.md 的
-表名/约束名/索引名三列对照,供人工抽查。
+alembic DDL 与 [`docs/data-model.md`](docs/data-model.md) 的表名/约束名/索引名一一对应,可人工抽查。

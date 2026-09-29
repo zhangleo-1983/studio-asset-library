@@ -2,7 +2,7 @@
 
 > 状态:**v3.1(design-freeze-v3 冻结后首次修订)**。修订项:【裁决八】`tag_provenance_by_source`
 > 改按维度双向(自由文本维 theme/color_scheme 的 model 标签 vocab_version_id 必为空)——见 §3.5 /
-> §5 与 alembic `0003`,裁决记录见 [reviews/](../reviews/)。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
+> §5 与 alembic `0003`。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
 > 本稿在 v2 基础上按《评审意见 R02》N1–N12 与《裁决记录 R02》裁决四(A-3 冻结)、裁决五(A-6+N1 合并:status 四态 + 反查失败落库)返修;R02 新增/变更处标注 N 编号(如【N1】【N4】),沿用编号(如【C1】【A-3】)保留。
 > **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名**已由裁决四批准并冻结**,见 [migration.md](./migration.md) §1.2【A-3 定稿】。
 > DDL 用 PostgreSQL 方言书写,表达结构意图,非最终迁移脚本。命名 snake_case,时间戳一律 `timestamptz`(UTC)。
