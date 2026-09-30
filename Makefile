@@ -7,7 +7,7 @@ export DATABASE_URL
 PY := .venv/bin/python
 PIP := uv pip
 
-.PHONY: install migrate seed demo loop test smoke compose-up compose-down
+.PHONY: install migrate seed demo loop test smoke smoke-single compose-up compose-down
 
 install:
 	uv venv --python 3.11
@@ -32,9 +32,13 @@ test:
 	.venv/bin/pytest -q
 	@for d in packs/*/tests; do [ -d "$$d" ] || continue; p=$$(basename $$(dirname $$d)); echo "== pack tests: $$p"; INDUSTRY_PACK=$$p .venv/bin/pytest -q $$d || exit 1; done
 
-# 真实 Qwen 冒烟(需 .env 的 DASHSCOPE_API_KEY);IMAGE=/path/to.jpg
-smoke: migrate
+# 单张图的真实 Qwen 冒烟(开发者用,需 .env 的 DASHSCOPE_API_KEY);IMAGE=/path/to.jpg
+smoke-single: migrate
 	$(PY) scripts/smoke_qwen.py --image $(IMAGE) --tenant 1
+
+# 面向零基础用户的一键真实 Qwen 冒烟:独立 docker compose 项目 + 全新数据库,详见 docs/SMOKE.md
+smoke:
+	@SMOKE_PACK=balloon bash scripts/smoke.sh
 
 compose-up:
 	docker compose up -d --build

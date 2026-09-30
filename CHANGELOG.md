@@ -21,6 +21,10 @@
 
 ### Added
 
+- `make smoke`:面向零基础用户的真实 Qwen 冒烟测试(预检、key 仅本进程内存、独立 compose 项目与全新数据库、3 图逐项断言、错误 key 反向测试、key 落盘扫描、中文汇总),说明见 `docs/SMOKE.md`。原 `make smoke` 更名为 `make smoke-single`。
+- demo 服务 `DEMO_STRICT=1` 严格模式(禁止 mock/离线兜底,真实调用失败返回 HTTP 502);任务输出记录调用来源 `_provider`。
+- `docker-compose.yml` 宿主机端口可由 `API_HOST_PORT` / `DEMO_HOST_PORT` / `PG_HOST_PORT` 覆盖;api 增加 8100(demo)端口映射。
+
 - 行业包机制:`packs/<id>/`(分类体系、带槽位的提示词、UI 文案、演示数据集指向、专属测试),
   `INDUSTRY_PACK` 一项配置切换;随仓库提供完整示例包与空骨架 `template`;文档见 `docs/industry-packs.md`。
 - demo 新增 `GET /ui.json`(页面文案来自行业包)。

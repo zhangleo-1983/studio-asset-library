@@ -73,6 +73,10 @@ docker compose up --build     # api / worker / postgres(无 Redis)
 > 状态:**已由 CI 每次提交自动验证**(`compose` job:`docker compose up -d --build` → 轮询
 > `/healthz` 通过 → `compose down`),badge 见页首。
 
+## 真实模型冒烟测试
+
+有自己的百炼 API key、想确认真实 Qwen 调用可用?运行 `make smoke`(零基础说明见 [docs/SMOKE.md](docs/SMOKE.md))。
+
 ## 切换行业包
 
 ```bash

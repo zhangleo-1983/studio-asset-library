@@ -16,7 +16,7 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - "5432:5432"
+      - "${PG_HOST_PORT:-5432}:5432"
 
   api:
     build: .
@@ -31,7 +31,8 @@ services:
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8000}:8000"
+      - "${DEMO_HOST_PORT:-8100}:8100"   # demo 服务(需在容器内另起,见 docs/SMOKE.md)
 
   worker:
     build: .

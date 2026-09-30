@@ -213,7 +213,7 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
 
     out = to_tagging_output(raw_obj)
 
-    # 5) task 收尾:output = {_raw_text(模型全文原样), parsed(提取后对象)},token 累计【N7】
+    # 5) task 收尾:output = {_raw_text(模型全文原样), parsed(提取后对象), _provider(调用来源标识)},token 累计【N7】
     #    【P2-3】成功/失败两条路径统一结构,原始全文一律保全(不丢代码围栏外文字)。
     session.execute(
         text(
@@ -226,7 +226,8 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
             WHERE task_id=:id AND tenant_id=:t
             """
         ),
-        {"raw": json.dumps({"_raw_text": result.text, "parsed": raw_obj}, ensure_ascii=False),
+        {"raw": json.dumps({"_raw_text": result.text, "parsed": raw_obj,
+                               "_provider": getattr(provider, "provider_id", "unknown")}, ensure_ascii=False),
          "osv": output_schema_version(),
          "m": model_id, "it": result.input_tokens, "ot": result.output_tokens,
          "lat": result.latency_ms, "ret": result.retries, "id": task_id, "t": tenant_id},

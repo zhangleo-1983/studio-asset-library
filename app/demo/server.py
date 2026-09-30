@@ -34,6 +34,21 @@ _LIBRARY = _DEMO_ASSETS / _ASSETS_CFG.get("library_subdir", "library")
 _FALLBACK = _DEMO_ASSETS / _ASSETS_CFG.get("fallback_subdir", "fallback")
 
 
+def _strict() -> bool:
+    """严格模式(DEMO_STRICT=1,冒烟测试用):禁止 mock/离线兜底;真实调用失败即返回 HTTP 错误,不静默降级。"""
+    return os.environ.get("DEMO_STRICT", "").strip() in ("1", "true", "yes")
+
+
+def _mock_mode() -> bool:
+    return os.environ.get("DEMO_MOCK", "").strip() in ("1", "true", "yes")
+
+
+def _redact(msg: str) -> str:
+    """错误信息里不得带出密钥。"""
+    key = os.environ.get("DASHSCOPE_API_KEY", "")
+    return msg.replace(key, "***") if key else msg
+
+
 def _offline() -> bool:
     return os.environ.get("DEMO_FORCE_OFFLINE", "").strip() in ("1", "true", "yes")
 
@@ -108,7 +123,11 @@ def create_demo_app() -> FastAPI:
             if r.outcome != "created":
                 with tenant_session() as s0:
                     existing = asset_up_tags(s0, DEMO_TENANT, r.asset_id)
+            if _strict() and (_offline() or _mock_mode()):
+                return JSONResponse({"error": "严格模式禁止 mock/离线兜底(检测到 DEMO_MOCK 或 DEMO_FORCE_OFFLINE)"}, status_code=500)
             provider = None if _offline() else _live_provider()
+            if _strict() and provider is None and not existing:
+                return JSONResponse({"error": "严格模式:未配置 DASHSCOPE_API_KEY,无法调用真实模型"}, status_code=503)
             if existing:
                 up = existing
             elif provider is None:
@@ -125,7 +144,9 @@ def create_demo_app() -> FastAPI:
                         process_task(s2, task_id, provider)
                     with tenant_session() as s3:
                         up = asset_up_tags(s3, DEMO_TENANT, r.asset_id)
-                except (TaggingFailure, Exception):
+                except (TaggingFailure, Exception) as e:
+                    if _strict():  # 冒烟/严格模式:明确报错,不降级
+                        return JSONResponse({"error": f"真实模型调用失败:{_redact(str(e))[:500]}"}, status_code=502)
                     degraded = True  # 实时失败也走兜底
                     up = _fallback_tags()
             with tenant_session() as s4:

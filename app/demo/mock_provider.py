@@ -15,6 +15,7 @@ from app.tagging.provider import CallResult, ProviderCallError, TaggingProvider
 
 class ManifestProvider(TaggingProvider):
     model_id = "qwen-vl-max"
+    provider_id = "mock"
 
     def __init__(self, manifest: dict[str, dict]):
         # manifest: {content_hash_hex: tagging_output_dict}
