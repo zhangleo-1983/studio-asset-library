@@ -76,6 +76,8 @@ make test                         # 核心测试 + 每个行业包自带的测�
 
 ## 部署
 
+> **如实说明:当前 compose 部署的 worker 是占位,也没有传入 `DASHSCOPE_API_KEY`,部署后不会进行真实打标;真实调用目前只在 `make smoke` 中验证过。**
+
 部署**全部在 Docker Compose 里完成**(迁移在 api 容器启动时自动执行,种子用 `docker compose exec` 在容器内执行),宿主机上只需要 Docker 和你的行业包目录。
 部署默认 `INDUSTRY_PACK=template`(空骨架),需要先写好自己的行业包(复制 `packs/template/`,按其 `FIELDS.md` 填写,见下节),再指向它:
 
@@ -86,7 +88,7 @@ docker compose exec api assetlib-seed --tenant-id 1 --slug my_studio --display-n
 curl http://localhost:8000/healthz          # {"status":"ok"}
 ```
 
-注意:compose 目前**不传入 `DASHSCOPE_API_KEY`**,worker 是占位(无密钥时空转,不处理打标任务);批量打标请先用"本地开发"方式,或自行扩展 compose。
+批量打标请先用"本地开发"方式,或自行扩展 compose(传入密钥并实现 worker 的真实处理)。
 
 ## 行业包
 
@@ -100,6 +102,7 @@ curl http://localhost:8000/healthz          # {"status":"ok"}
 - **只支持标签检索。** 检索靠规范化标签表 + 多维筛选;**以图搜图(向量/语义相似)在规划中,目前没有**。
 - **维度键固定为 5 个**(`structure` / `color` / `scene` / `theme` / `color_scheme`)。行业包可以从中选用、替换词表和展示名,但**不能自定义新的维度**(数据库约束按这 5 个键设计,自定义维度需要新的迁移,尚未实现)。见 [docs/industry-packs.md](docs/industry-packs.md)「已知限制」。
 - **主题、配色简称是自由文本维度,不受词表约束。** 模型怎么写就怎么存,可能出现**同义不同写**(如"红白黄"与"红白黄色")。只有受词表约束的维度(示例包里是造型、配色、场景)才保证标签是词表里的词。检索、统计时不要假设自由文本维度的取值是有限集合。
+- **compose 部署目前不会进行真实打标。** compose 里的 worker 是占位(空转),也未传入 `DASHSCOPE_API_KEY`;真实的 Qwen 调用目前只在 `make smoke` 中验证过。
 - **示例包的演示素材是程序绘制的插画,不是真实照片。** 在插画上的打标结果**不代表**在真实照片上的准确率;`make smoke` 冒烟测试**只验证流程与规范**(标签在词表内、来源是真实调用、提示词版本正确),**不评估准确率**。准确率请用你自己的图另行评估。
 
 ## 定制与合作
