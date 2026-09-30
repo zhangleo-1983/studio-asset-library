@@ -23,19 +23,67 @@
 
 ### 1.2 词表 → `vocabulary` 表
 
+> **以 [`packs/balloon`](../packs/balloon/taxonomy.json) 示例包为例**(下列词条即该包 `taxonomy.json` 的真实内容;换行业包时机制相同、词条不同)。
+
 - **来源:** 旧项目的词表文件(每个受约束维度一份枚举/分组列表)。
-- **去向:** 行业包的 `taxonomy.json`(`packs/<id>/`,字段说明见 [industry-packs.md](./industry-packs.md))。种子脚本据此为每个受约束维度生成 `vocabulary_version` 的 `version_no=1` 与 `vocabulary` 行,`labels={"zh":"<词形>"}`;需要区分子类的维度(如颜色的单色/复合色)用词条的 `color_kind` 字段。
+- **去向:** 行业包的 `taxonomy.json`(字段说明见 [industry-packs.md](./industry-packs.md))。种子脚本据此为每个受约束维度生成 `vocabulary_version` 的 `version_no=1` 与 `vocabulary` 行,`labels={"zh":"立柱"}`;需要区分子类的维度(如颜色的单色/复合色)用词条的 `color_kind` 字段。示例包:造型 3 条、配色 17 条(10 单色 + 7 复合色)、场景 8 条。
 - 多语言:`labels` 本期只填 `zh`,结构留位 `en` 等。【不变量三 — 留位不实现】
 - 旧项目里写死在 schema + prompt 两处的枚举(如"场景"),新平台**也迁成词表维度**,消除"改词表要动两个地方"的痛点。
 
-#### 【A-3 · 定稿冻结】concept_key 命名
+#### 【A-3 · 定稿冻结(裁决四已批准)】concept_key 命名
 
-`tag.value` 存 concept_key(方案 A),故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。命名原则:小写英文、复合词用下划线、语义直译、避免歧义、避免过泛。**一经上线,concept_key 不得再改,后续改中文词形只动 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。** 自由文本维不入词表(无 concept_key)。各行业包的具体词条与概念键见其 `taxonomy.json`(示例见 `packs/<id>/taxonomy.json`)。
+`tag.value` 存 concept_key(方案 A),故每个词表条目需一个**稳定、ASCII、上线后不改**的概念键。命名原则:小写英文、复合色用下划线、语义直译、避免歧义。**自此全部 concept_key 不得再改,后续改中文词形只动 `vocabulary.labels.zh`。**
+
+**structure(造型)**
+
+| zh 词形 | concept_key |
+|---|---|
+| 立柱 | `column` |
+| 拱门 | `arch` |
+| 花盒 | `flowerbox` |
+
+**color(配色,单色 + 复合色)**
+
+| zh 词形 | concept_key | color_kind |
+|---|---|---|
+| 粉 | `pink` | simple |
+| 白 | `white` | simple |
+| 红 | `red` | simple |
+| 蓝 | `blue` | simple |
+| 绿 | `green` | simple |
+| 黄 | `yellow` | simple |
+| 紫 | `purple` | simple |
+| 黑 | `black` | simple |
+| 银 | `silver` | simple |
+| 金 | `gold` | simple |
+| 多巴胺 | `dopamine` | compound |
+| 珠光白 | `pearl_white` | compound |
+| 珠光粉 | `pearl_pink` | compound |
+| 铬玫瑰金 | `chrome_rose_gold` | compound |
+| 铬香槟金 | `chrome_champagne_gold` | compound |
+| 木瓜黄 | `papaya_yellow` | compound |
+| 铬金 | `chrome_gold` | compound |
+
+**scene(场景)**
+
+| zh 词形 | concept_key |
+|---|---|
+| 生日宴 | `birthday` |
+| 寿宴 | `longevity_feast` |
+| 宝宝宴 | `baby_banquet` |
+| 商场美陈 | `mall_display` |
+| 校园活动 | `campus_event` |
+| 开业 | `grand_opening` |
+| 婚礼 | `wedding` |
+| 其他 | `other` |
+
+> **【裁决四改名 2 处】** 宝宝宴 `baby_shower → baby_banquet`(baby shower 是产前送礼会,宝宝宴是产后满月/百日/周岁宴,语义错位,冻结前纠正);开业 `opening → grand_opening`(opening 过泛,grand_opening 精确)。
+> 说明:concept_key 已冻结,后续改中文词形("立柱"→"圆柱")只改 `vocabulary.labels.zh`,concept_key 与全部历史 `tag.value` 不动。theme 维不入此表(自由文本,无 concept_key)。【A-3 定稿】
 
 ### 1.3 alias_map → `alias_map` 表 【A-2】
 
-- **来源:** 旧项目的别名表,按字段分区;去向为行业包 `taxonomy.json` 中各维度的 `aliases`。
-- **动作【A-2】:** 逐条迁入 `alias_map` 表,但 `standard_value` 语义改为**指向 concept_key**(不再是中文标准词形)。例:旧「变体词 → 标准词」迁为 **`alias='<变体词>', concept_key='<标准词的键>'`**。`source='human'`(存量视为人工维护)。
+- **来源:** 旧项目的别名表,按字段分区(示例包:`structure: 气球花盒 → 花盒`);去向为行业包 `taxonomy.json` 中各维度的 `aliases`。
+- **动作【A-2】:** 逐条迁入 `alias_map` 表,但 `standard_value` 语义改为**指向 concept_key**(不再是中文标准词形)。例:旧 `气球花盒 → 花盒` 迁为 **`alias='气球花盒', concept_key='flowerbox'`**。`source='human'`(存量视为人工维护)。
 - 归一化解析链(模型中文词形 → alias_map/labels.zh 反查 → concept_key 落库)与 labels.zh 唯一约束见 data-model §3.4【A-4】。冲突/成环校验规则(旧 `apply_alias` 的拒绝逻辑)在新平台的回流写入路径里保留。【见 §2.2】
 
 ### 1.4 生产配置(评测锁定)→ `config_version`

@@ -59,7 +59,8 @@ def main() -> None:
             from app.assets import ingest_asset
             r = ingest_asset(p.read_bytes(), mime_type="image/png", original_ext="png",
                              original_name=p.name)
-            enqueue_tagging_task(r.asset_id, run_id="demo_seed")
+            if r.outcome == "created":  # 重复运行(如容器重启)不重复入队打标,避免重复标签
+                enqueue_tagging_task(r.asset_id, run_id="demo_seed")
         run_batch(provider)
 
     # 验收① 代码断言:demo 库素材数 == 合规库文件数,一张不多

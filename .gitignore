@@ -31,3 +31,6 @@ local_images/
 *.jpeg
 *.webp
 *.gif
+# 例外:文档截图目录(只放程序绘制插画的演示截图,须在 ASSETS.md 登记)
+!docs/images/
+!docs/images/*

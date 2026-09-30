@@ -47,5 +47,25 @@ services:
     # worker 入口:同镜像不同入口(本期空转占位,不跑打标)。
     command: ["python", "-m", "app.worker"]
 
+  # 一键体验(mock provider,无需密钥):docker compose --profile demo up --build demo
+  # 然后浏览器打开 http://localhost:8100 。不带 --profile demo 时此服务不会启动。
+  demo:
+    profiles: ["demo"]
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://assetlib:assetlib@postgres:5432/asset_library
+      INDUSTRY_PACK: ${INDUSTRY_PACK:-balloon}   # 体验用完整示例包
+      DEMO_MOCK: "1"                             # 确定性假模型,不调真实 API
+    command: >
+      sh -c "alembic upgrade head &&
+             python scripts/pack_run.py assets &&
+             python scripts/demo_seed.py &&
+             uvicorn app.demo.server:app --host 0.0.0.0 --port 8100"
+    ports:
+      - "${DEMO_HOST_PORT:-8100}:8100"
+
 volumes:
   pgdata:
