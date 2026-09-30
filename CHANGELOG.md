@@ -21,6 +21,9 @@
 
 ### Added
 
+- `docker compose --profile demo up --build demo`:一键体验(示例包 + mock provider,无需密钥),浏览器打开 http://localhost:8100 。
+- README 重写(项目定位、现在能做什么、快速开始双路径、已知局限);`docs/images/demo.png` 演示截图(`.gitignore` 放行 `docs/images/`)。
+
 - `make smoke`:面向零基础用户的真实 Qwen 冒烟测试(预检、key 仅本进程内存、独立 compose 项目与全新数据库、3 图逐项断言、错误 key 反向测试、key 落盘扫描、中文汇总),说明见 `docs/SMOKE.md`。原 `make smoke` 更名为 `make smoke-single`。
 - demo 服务 `DEMO_STRICT=1` 严格模式(禁止 mock/离线兜底,真实调用失败返回 HTTP 502);任务输出记录调用来源 `_provider`。
 - `docker-compose.yml` 宿主机端口可由 `API_HOST_PORT` / `DEMO_HOST_PORT` / `PG_HOST_PORT` 覆盖;api 增加 8100(demo)端口映射。
