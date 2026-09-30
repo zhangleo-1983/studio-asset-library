@@ -1,7 +1,7 @@
 [project]
-name = "balloon-platform"
+name = "studio-asset-library"
 version = "0.1.0"
-description = "定制服务行业选款与供应链 SaaS 平台(首个行业:气球派对;首个租户:示例客户)——仓库骨架"
+description = "小工作室多模态素材库:AI 图像打标 + 行业包(分类体系/提示词/UI 文案/演示数据集)可替换"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "pillow>=10",            # 图片压缩/尺寸(打标发送前长边压缩,迁自旧 providers.py)
     "pillow-heif>=0.16",     # iPhone .HEIC 解码(旧 providers.py 已引入)
     "openai>=1.0",           # Qwen-VL 走 OpenAI 兼容接口
+    "python-multipart>=0.0.9",  # demo 单页上传(FastAPI UploadFile)
 ]
 
 [project.optional-dependencies]
@@ -24,7 +25,7 @@ dev = [
 
 [project.scripts]
 # 参数化种子脚本入口(migration.md §4 步骤 0 的租户级重放)
-balloon-seed = "app.seed:main"
+assetlib-seed = "app.seed:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -34,4 +35,4 @@ build-backend = "hatchling.build"
 packages = ["app"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests"]  # 各行业包的测试在 packs/<id>/tests,由 `make test` 逐包运行

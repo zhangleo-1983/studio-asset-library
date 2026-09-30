@@ -1,7 +1,7 @@
 """参数化租户种子脚本(migration.md §4 步骤 0 + 场景3小注的"租户级重放")。
 
-接受任意 tenant 参数,把"建租户 + 建初始管理用户 + 词表种子(structure/color/scene v1)+
-alias 基线 + 生产配置 + 各步 event"写成**可重放**逻辑。示例客户只是首次调用;第二个租户接入
+接受任意 tenant 参数,把"建租户 + 建初始管理用户 + 词表种子(当前行业包声明的各受约束维度 v1)+
+alias 基线 + 生产配置 + 各步 event"写成**可重放**逻辑。首个租户只是首次调用;第二个租户接入
 = 以新 tenant 参数重放同一脚本,零业务代码改动(场景 3 的代码级复现)。
 
 纪律:
@@ -12,7 +12,6 @@ alias 基线 + 生产配置 + 各步 event"写成**可重放**逻辑。示例客
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import logging
 from typing import Optional
@@ -23,15 +22,10 @@ from sqlalchemy.orm import Session
 from app.active_config import activate_config
 from app.db import platform_session
 from app.events import record_event
-from app.seed_data import (
-    ALIAS_BASELINE,
-    COLOR,
-    CONFIG_PAYLOAD_BASE,
-    SCENE,
-    STRUCTURE,
-)
+from app.packs import get_pack
+from app.tagging.config_defaults import tagging_config_base
 
-logger = logging.getLogger("balloon.seed")
+logger = logging.getLogger("assetlib.seed")
 
 
 def _tenant_exists(session: Session, tenant_id: int) -> bool:
@@ -162,10 +156,10 @@ def seed_tenant(
     display_name: str,
     *,
     admin_username: Optional[str] = None,
-    industry: str = "balloon_party",
-    prompt_version: str = "tagging_v2",
+    industry: Optional[str] = None,
+    prompt_version: Optional[str] = None,
     prompt_sha256: Optional[str] = None,
-    note: str = "migrated from balloon-tagging-eval",
+    note: Optional[str] = None,
 ) -> bool:
     """为一个租户播种全部基线数据。返回 True=本次实际播种,False=已存在跳过(幂等)。
 
@@ -176,6 +170,10 @@ def seed_tenant(
     if tenant_id == 0:
         raise ValueError("tenant_id=0 是平台保留号,由建库迁移固化,不通过本脚本播种。")
 
+    pack = get_pack()
+    industry = industry or pack.industry
+    prompt_version = prompt_version or pack.prompt_version
+    note = note or f"seed from industry pack {pack.id}"
     admin_username = admin_username or f"admin@{slug}"
 
     with platform_session(reason=f"seed:tenant:{tenant_id}") as session:
@@ -188,30 +186,25 @@ def seed_tenant(
         # 2) 初始管理用户(词表 created_by 引用它,故先于词表)【C7 依赖倒挂】
         admin_id = _insert_admin(session, tenant_id, admin_username)
 
-        # 3) 词表种子:三维各建 version_no=1,再灌 concept_key 行
-        vv_structure = _insert_vocab_version(session, tenant_id, "structure", admin_id, note)
-        for ck, zh in STRUCTURE:
-            _insert_vocab_row(session, tenant_id, "structure", ck, zh, vv_structure)
-
-        vv_color = _insert_vocab_version(session, tenant_id, "color", admin_id, note)
-        for ck, zh, ckind in COLOR:
-            _insert_vocab_row(session, tenant_id, "color", ck, zh, vv_color, color_kind=ckind)
-
-        vv_scene = _insert_vocab_version(session, tenant_id, "scene", admin_id, note)
-        for ck, zh in SCENE:
-            _insert_vocab_row(session, tenant_id, "scene", ck, zh, vv_scene)
+        # 3) 词表种子:行业包里每个受约束维度各建 version_no=1,再灌 concept_key 行
+        vocab_versions: dict[str, int] = {}
+        for dim in pack.dimensions:
+            if not dim.constrained:
+                continue
+            vv = _insert_vocab_version(session, tenant_id, dim.key, admin_id, note)
+            vocab_versions[dim.key] = vv
+            for e in dim.vocabulary:
+                _insert_vocab_row(session, tenant_id, dim.key, e.concept_key,
+                                  e.labels["zh"], vv, color_kind=e.color_kind)
 
         # 4) alias 基线
-        for dim, alias, ck in ALIAS_BASELINE:
-            _insert_alias(session, tenant_id, dim, alias, ck)
+        for dim in pack.dimensions:
+            for alias, ck in dim.aliases:
+                _insert_alias(session, tenant_id, dim.key, alias, ck)
 
-        # 5) 生产配置:payload 锁定本租户三维词表版本 id【N3】
-        payload = copy.deepcopy(CONFIG_PAYLOAD_BASE)
-        payload["vocab_versions"] = {
-            "structure": vv_structure,
-            "color": vv_color,
-            "scene": vv_scene,
-        }
+        # 5) 生产配置:payload 锁定本租户各维词表版本 id【N3】
+        payload = tagging_config_base()
+        payload["vocab_versions"] = vocab_versions
         config_id = _insert_config_version(
             session, tenant_id, admin_id, payload, prompt_version, prompt_sha256
         )
@@ -239,7 +232,7 @@ def seed_tenant(
             actor_kind="system", subject_type="vocabulary", subject_id=None,
             payload={
                 "action": "seed_vocabulary",
-                "vocab_versions": {"structure": vv_structure, "color": vv_color, "scene": vv_scene},
+                "vocab_versions": vocab_versions,
             },
         )
         record_event(
@@ -254,13 +247,13 @@ def seed_tenant(
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    parser = argparse.ArgumentParser(description="balloon-platform 参数化租户种子(可重放)")
+    parser = argparse.ArgumentParser(description="参数化租户种子(可重放);词表/配置取自 INDUSTRY_PACK 选用的行业包")
     parser.add_argument("--tenant-id", type=int, required=True, help="租户号(0 保留,禁用)")
     parser.add_argument("--slug", required=True, help="租户 slug,如 demo_tenant")
     parser.add_argument("--display-name", required=True, help="展示名,如 示例客户")
     parser.add_argument("--admin-username", default=None, help="初始管理用户名;默认 admin@<slug>")
-    parser.add_argument("--industry", default="balloon_party")
-    parser.add_argument("--prompt-version", default="tagging_v2")
+    parser.add_argument("--industry", default=None, help="默认取行业包的 industry")
+    parser.add_argument("--prompt-version", default=None, help="默认取行业包的提示词版本")
     parser.add_argument("--prompt-sha256", default=None, help="提示词内容 hash;骨架期可空")
     args = parser.parse_args()
 

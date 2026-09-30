@@ -1,6 +1,6 @@
 """归一化解析链(A-4 / A-6 / N12)。【不变量二 · 承重路径】
 
-模型输出中文词形 → 落库 concept_key,规则(受约束维度 structure/color/scene):
+模型输出中文词形 → 落库 concept_key,规则(受约束维度,由行业包声明):
 
     1. 先查 alias_map(别名 → concept_key);
     2. 未命中再查当期 vocabulary.labels.zh(词形 → concept_key);
@@ -10,7 +10,7 @@
        value 存**裸原词形**(concept_key 强制 ASCII,中文词形天然不冒充概念键,不加 raw: 前缀)、
        status='unresolved'、needs_review=true,进复核队列待人工归类。
 
-theme / color_scheme 维为自由文本,不入本链:value=原词形、status='active'。
+自由文本维不入本链:value=原词形、status='active'。
 """
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ def resolve(
     vocab_version_id: int,
 ) -> Resolved:
     """把一个受约束维度的中文词形解析为落库形态。"""
-    if dimension not in vocab.CONSTRAINED_DIMENSIONS:
-        raise ValueError(f"{dimension} 非受约束维度,不应走归一化链(theme/color_scheme 自由文本)")
+    if dimension not in vocab.constrained_dimensions():
+        raise ValueError(f"{dimension} 非受约束维度,不应走归一化链(自由文本维)")
 
     word = (raw_word or "").strip()
     if not word:

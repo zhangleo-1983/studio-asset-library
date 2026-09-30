@@ -18,6 +18,8 @@ from app.tagging.execute import enqueue_tagging_task, run_batch
 from app.tagging.knowledge import register_tagging_config
 from tests import fixtures as fx
 
+import samples
+
 
 def _tag_one(tid: int, slug: str) -> tuple[int, dict[str, int]]:
     """建租户、打一张(VALID)、返回 asset_id 与 {value: tag_id}。"""
@@ -26,7 +28,7 @@ def _tag_one(tid: int, slug: str) -> tuple[int, dict[str, int]]:
     with tenant_context(tid):
         r = ingest_asset(fx.make_png_bytes(color=(tid % 256, 1, 2)), mime_type="image/png", original_ext="png")
         enqueue_tagging_task(r.asset_id, run_id=f"run_{tid}")
-        run_batch(fx.FakeProvider([fx.as_raw_text(fx.VALID)]))
+        run_batch(fx.FakeProvider([fx.as_raw_text(samples.VALID)]))
     with platform_session(reason="test:map") as s:
         rows = s.execute(
             text("SELECT value, tag_id FROM tag WHERE tenant_id=:t AND asset_id=:a"),

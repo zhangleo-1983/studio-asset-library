@@ -20,15 +20,16 @@ from app.active_config import current_config
 from app.context import get_current_tenant
 from app.db import tenant_session
 from app.events import record_event
-from app.schemas import TAGGING_OUTPUT_SCHEMA_VERSION, TaggingOutput
+from app.packs import get_pack
+from app.schemas import TaggingOutput, output_schema_version
 from app.storage import get_storage_backend
 from app.tagging import normalize
 from app.tagging.parse import ParseError, extract_json_obj, to_tagging_output
-from app.tagging.prompt import PROMPT_VERSION, render_prompt
+from app.tagging.prompt import prompt_version, render_prompt
 from app.tagging.provider import TaggingProvider
-from app.tagging.vocab import CONSTRAINED_DIMENSIONS, labels_zh
+from app.tagging.vocab import constrained_dimensions, labels_zh
 
-logger = logging.getLogger("balloon.tagging")
+logger = logging.getLogger("assetlib.tagging")
 
 
 class TaggingFailure(Exception):
@@ -108,20 +109,14 @@ def claim_next_task(session: Session, tenant_id: int) -> Optional[int]:
 
 
 def _plan_tags(out: TaggingOutput) -> list[tuple[str, str, Optional[str]]]:
-    """把 TaggingOutput 摊平成 (dimension, raw_word, role) 列表。role 仅 color 维有值。"""
+    """按行业包的 extraction 把 TaggingOutput 摊平成 (dimension, raw_word, role) 列表。
+    空值(None/空串)不落标签;列表取值逐项落。"""
     plan: list[tuple[str, str, Optional[str]]] = []
-    for w in out.structure_types:
-        plan.append(("structure", w, None))
-    for w in out.color_scheme.primary:
-        plan.append(("color", w, "primary"))
-    for w in out.color_scheme.accent:
-        plan.append(("color", w, "accent"))
-    if out.scene_guess:
-        plan.append(("scene", out.scene_guess, None))
-    if out.theme:  # 自由文本;theme=null 则不落标签
-        plan.append(("theme", out.theme, None))
-    if out.color_scheme.scheme_name:
-        plan.append(("color_scheme", out.color_scheme.scheme_name, None))
+    for rule, value in zip(get_pack().extraction, out.values):
+        if isinstance(value, list):
+            plan.extend((rule.dimension, w, rule.role) for w in value)
+        elif value:
+            plan.append((rule.dimension, value, rule.role))
     return plan
 
 
@@ -157,7 +152,7 @@ def _insert_model_tag(
         {
             "t": tenant_id, "a": asset_id, "task": task_id, "dim": tw.dimension,
             "val": tw.value, "role": tw.role, "status": tw.status,
-            "model": model_id, "pv": PROMPT_VERSION, "vv": vocab_version_id, "cv": config_version_id,
+            "model": model_id, "pv": prompt_version(), "vv": vocab_version_id, "cv": config_version_id,
             "run": run_id, "ih": input_hash, "itok": input_tokens, "otok": output_tokens,
             "conf": confidence, "nr": tw.needs_review,
         },
@@ -177,7 +172,7 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
         raise RuntimeError(f"租户 {tenant_id} 无当期 tagging 配置")
     payload = cfg["payload"]
     model_id = payload["model"]
-    vocab_versions = payload["vocab_versions"]  # {structure,color,scene}
+    vocab_versions = payload["vocab_versions"]  # {受约束维度键: vocab_version_id}
     config_version_id = cfg["config_version_id"]
 
     # 2) 任务与资产
@@ -195,9 +190,10 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
     image_bytes = get_storage_backend().get(tenant_id, asset_id, original_ext=original_ext).content
 
     # 3) 注入当期词表调模型
-    color_zh = labels_zh(session, tenant_id, "color", vocab_versions["color"])
-    structure_zh = labels_zh(session, tenant_id, "structure", vocab_versions["structure"])
-    prompt = render_prompt(color_zh, structure_zh)
+    prompt = render_prompt({
+        dim: labels_zh(session, tenant_id, dim, vocab_versions[dim])
+        for dim in get_pack().prompt_vocab_dimensions
+    })
 
     try:
         result = provider.call(image_bytes, prompt)
@@ -217,7 +213,7 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
 
     out = to_tagging_output(raw_obj)
 
-    # 5) task 收尾:output = {_raw_text(模型全文原样), parsed(提取后对象)},token 累计【N7】
+    # 5) task 收尾:output = {_raw_text(模型全文原样), parsed(提取后对象), _provider(调用来源标识)},token 累计【N7】
     #    【P2-3】成功/失败两条路径统一结构,原始全文一律保全(不丢代码围栏外文字)。
     session.execute(
         text(
@@ -230,8 +226,9 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
             WHERE task_id=:id AND tenant_id=:t
             """
         ),
-        {"raw": json.dumps({"_raw_text": result.text, "parsed": raw_obj}, ensure_ascii=False),
-         "osv": TAGGING_OUTPUT_SCHEMA_VERSION,
+        {"raw": json.dumps({"_raw_text": result.text, "parsed": raw_obj,
+                               "_provider": getattr(provider, "provider_id", "unknown")}, ensure_ascii=False),
+         "osv": output_schema_version(),
          "m": model_id, "it": result.input_tokens, "ot": result.output_tokens,
          "lat": result.latency_ms, "ret": result.retries, "id": task_id, "t": tenant_id},
     )
@@ -239,14 +236,14 @@ def process_task(session: Session, task_id: int, provider: TaggingProvider) -> i
     # 6) 落 tag:归一化 + 六项溯源(裁决八:受约束维记 vocab_version_id,自由文本维置 NULL)
     n = 0
     for dimension, raw_word, role in _plan_tags(out):
-        if dimension in CONSTRAINED_DIMENSIONS:
+        if dimension in constrained_dimensions():
             vv = vocab_versions[dimension]
             r = normalize.resolve(session, tenant_id, dimension, raw_word, vv)
             tw = TagWrite(dimension=dimension, value=r.value, role=role,
                           status=r.status, needs_review=r.needs_review or bool(out.needs_review))
             vocab_version_id: Optional[int] = vv
         else:
-            # 自由文本维(theme/color_scheme):value=原词形,active,vocab_version_id 必为空【裁决八】
+            # 自由文本维:value=原词形,active,vocab_version_id 必为空【裁决八】
             tw = TagWrite(dimension=dimension, value=raw_word, role=role,
                           status="active", needs_review=bool(out.needs_review))
             vocab_version_id = None
@@ -286,7 +283,7 @@ def _persist_failure(tenant_id: int, task_id: int, f: "TaggingFailure") -> None:
             {
                 "err": f.reason[:2000],
                 "raw": json.dumps({"_raw_text": f.raw_text}, ensure_ascii=False),
-                "osv": TAGGING_OUTPUT_SCHEMA_VERSION, "m": f.model_id,
+                "osv": output_schema_version(), "m": f.model_id,
                 "it": f.input_tokens, "ot": f.output_tokens, "lat": f.latency_ms,
                 "id": task_id, "t": tenant_id,
             },

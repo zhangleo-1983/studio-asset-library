@@ -26,6 +26,8 @@ class CallResult:
 
 class TaggingProvider(abc.ABC):
     model_id: str
+    # 调用来源标识,随任务落 task.output._provider,用于区分真实调用与 mock(冒烟测试据此断言)
+    provider_id: str = "unknown"
 
     @abc.abstractmethod
     def call(self, image_bytes: bytes, prompt_text: str) -> CallResult:
@@ -63,6 +65,8 @@ def _encode_image_data_uri(image_bytes: bytes, max_edge: int = 1568) -> str:
 
 
 class QwenVLProvider(TaggingProvider):
+    provider_id = "qwen"
+
     def __init__(
         self,
         *,

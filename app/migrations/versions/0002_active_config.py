@@ -30,7 +30,7 @@ CREATE TABLE active_config (
 # 非只增表:授予含 UPDATE(推指针 = UPDATE),不 REVOKE。0001 的 GRANT ON ALL TABLES 不覆盖
 # 本次新表,故这里单独 GRANT。
 GRANT_ACTIVE_CONFIG = """
-GRANT SELECT, INSERT, UPDATE ON active_config TO balloon_app;
+GRANT SELECT, INSERT, UPDATE ON active_config TO platform_app;
 """
 
 

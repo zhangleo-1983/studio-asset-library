@@ -7,7 +7,6 @@ review_threshold),再经 activate_config 把当期生效指针推到新行;种�
 """
 from __future__ import annotations
 
-import copy
 import json
 from typing import Optional
 
@@ -17,9 +16,9 @@ from sqlalchemy.orm import Session
 from app.active_config import activate_config, current_config
 from app.db import platform_session
 from app.events import record_event
-from app.schemas import TAGGING_OUTPUT_SCHEMA_VERSION
-from app.seed_data import CONFIG_PAYLOAD_BASE
-from app.tagging.prompt import PROMPT_VERSION, prompt_sha256
+from app.schemas import output_schema_version
+from app.tagging.config_defaults import tagging_config_base
+from app.tagging.prompt import prompt_sha256, prompt_version
 
 DEFAULT_REVIEW_THRESHOLD = 0.6
 
@@ -38,7 +37,7 @@ def _insert_config_version(session: Session, tenant_id: int, payload: dict, sha:
             {
                 "t": tenant_id,
                 "p": json.dumps(payload, ensure_ascii=False),
-                "pv": PROMPT_VERSION,
+                "pv": prompt_version(),
                 "sha": sha,
                 "by": None,
             },
@@ -61,14 +60,14 @@ def register_tagging_config(
                 f"租户 {tenant_id} 无当期 tagging 配置;请先跑种子(seed_tenant)。"
             )
         # 幂等:当期已是带 sha 的本版提示词配置
-        if cur["prompt_sha256"] == prompt_sha256() and cur["prompt_version"] == PROMPT_VERSION:
+        if cur["prompt_sha256"] == prompt_sha256() and cur["prompt_version"] == prompt_version():
             return cur["config_version_id"]
 
         # carry-forward 词表版本;补 prompt 内容锚 + review_threshold + output schema 版本
-        payload = copy.deepcopy(CONFIG_PAYLOAD_BASE)
+        payload = tagging_config_base()
         payload["vocab_versions"] = cur["payload"].get("vocab_versions", {})
         payload["review_threshold"] = review_threshold
-        payload["output_schema_version"] = TAGGING_OUTPUT_SCHEMA_VERSION
+        payload["output_schema_version"] = output_schema_version()
 
         new_id = _insert_config_version(session, tenant_id, payload, prompt_sha256())
 
@@ -83,7 +82,7 @@ def register_tagging_config(
             subject_id=new_id,
             payload={
                 "action": "register_tagging_config",
-                "prompt_version": PROMPT_VERSION,
+                "prompt_version": prompt_version(),
                 "prompt_sha256": prompt_sha256(),
                 "review_threshold": review_threshold,
             },

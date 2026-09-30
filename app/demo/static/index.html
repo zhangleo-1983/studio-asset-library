@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>…</title>
+<style>
+  :root{
+    --ink:#181826; --muted:#7a7a92; --line:#ececf3; --bg:#f7f4fb;
+    --accent:#e84a7f; --accent2:#7b4dff; --ok:#2ba672; --warn:#e2a400;
+    --card:#ffffff; --shadow:0 6px 24px rgba(40,15,55,.07);
+  }
+  *{box-sizing:border-box;} html,body{margin:0;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       color:var(--ink); background:var(--bg); line-height:1.5;}
+  .hero{background:linear-gradient(135deg,#e84a7f 0%,#7b4dff 100%); color:#fff;
+        padding:44px 24px 40px; text-align:center;}
+  .hero h1{margin:0 0 8px; font-size:28px; letter-spacing:.5px;}
+  .hero p{margin:0; opacity:.92; font-size:15px;}
+  .hero .tag{display:inline-block; margin-top:14px; font-size:13px; background:rgba(255,255,255,.18);
+             padding:5px 14px; border-radius:999px;}
+  .wrap{max-width:960px; margin:-24px auto 60px; padding:0 20px;}
+  .drop{display:block; background:var(--card); border:2px dashed #d9c7e6; border-radius:18px;
+        padding:40px 24px; text-align:center; cursor:pointer; transition:.18s; box-shadow:var(--shadow);}
+  .drop.hover{border-color:var(--accent); background:#fff;}
+  .drop .big{font-size:17px; font-weight:600; margin-bottom:6px;}
+  .drop .sub{color:var(--muted); font-size:13px;}
+  .drop input{display:none;}
+  .stage{display:none; margin-top:22px;}
+  .stage.show{display:block; animation:fade .4s ease;}
+  @keyframes fade{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;}}
+  .grid{display:grid; grid-template-columns:340px 1fr; gap:20px;}
+  @media(max-width:760px){.grid{grid-template-columns:1fr;}}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:16px;
+        padding:18px; box-shadow:var(--shadow);}
+  .card h3{margin:0 0 12px; font-size:15px;}
+  .up-img{width:100%; border-radius:12px; display:block;}
+  .dim{margin:12px 0;}
+  .dim label{display:block; font-size:12px; color:var(--muted); margin-bottom:5px;}
+  .chip{display:inline-block; background:#fdeaf1; color:var(--accent); border-radius:999px;
+        padding:4px 12px; font-size:13px; margin:2px 5px 2px 0; font-weight:500;}
+  .chip.v2{background:#efeaff; color:var(--accent2);}
+  .cases{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
+  .cases img{width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:12px;
+             border:1px solid var(--line);}
+  .bar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .btn{background:linear-gradient(135deg,#e84a7f,#7b4dff); color:#fff; border:none;
+       padding:12px 22px; border-radius:12px; font-size:15px; font-weight:600; cursor:pointer;
+       box-shadow:0 4px 14px rgba(150,50,120,.28);}
+  .btn:active{transform:translateY(1px);}
+  .banner{background:#fff8e6; border:1px solid #f0dca0; color:#8a6d00; border-radius:12px;
+          padding:10px 14px; font-size:13px; margin-bottom:16px; display:none;}
+  .banner.show{display:block;}
+  .spin{display:none; text-align:center; color:var(--muted); padding:24px; font-size:14px;}
+  .spin.show{display:block;}
+  .foot{text-align:center; color:var(--muted); font-size:12px; margin-top:26px;}
+</style>
+</head>
+<body>
+  <div class="hero">
+    <h1 id="heroTitle"></h1>
+    <p id="heroSub"></p>
+    <span class="tag" id="heroBadge"></span>
+  </div>
+
+  <div class="wrap">
+    <label class="drop" id="drop">
+      <div class="big" id="dropTitle"></div>
+      <div class="sub" id="dropHint"></div>
+      <input type="file" id="file" accept="image/*"/>
+    </label>
+
+    <div class="spin" id="spin"></div>
+
+    <div class="stage" id="stage">
+      <div class="banner" id="banner"></div>
+      <div class="grid">
+        <div class="card">
+          <h3 id="upTitle"></h3>
+          <img class="up-img" id="upImg"/>
+          <div id="dims"></div>
+        </div>
+        <div class="card">
+          <div class="bar">
+            <h3 style="margin:0" id="matchesTitle"></h3>
+            <button class="btn" id="exportBtn"></button>
+          </div>
+          <div class="cases" id="cases"></div>
+        </div>
+      </div>
+      <p class="foot" id="footer"></p>
+    </div>
+  </div>
+
+<script>
+const $=id=>document.getElementById(id);
+const drop=$('drop'), file=$('file'), spin=$('spin'), stage=$('stage');
+let currentAssetId=null, currentSimilar=[], UI=null;
+
+function esc(t){const d=document.createElement('div'); d.textContent=t; return d.innerHTML;}
+
+async function init(){
+  UI=await (await fetch('/ui.json')).json();
+  const a=UI.app;
+  document.title=a.page_title;
+  $('heroTitle').textContent=a.hero_title; $('heroSub').textContent=a.hero_subtitle;
+  $('heroBadge').textContent=a.hero_badge; $('dropTitle').textContent=a.drop_title;
+  $('dropHint').textContent=a.drop_hint; $('spin').textContent=a.spinner;
+  $('banner').textContent=a.banner_offline; $('upTitle').textContent=a.upload_card_title;
+  $('upImg').alt=a.upload_alt; $('matchesTitle').textContent=a.matches_title;
+  $('exportBtn').textContent=a.export_button; $('footer').textContent=a.footer;
+}
+const ready=init();
+
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('hover');});
+drop.addEventListener('dragleave',()=>drop.classList.remove('hover'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('hover');
+  if(e.dataTransfer.files[0]) send(e.dataTransfer.files[0]);});
+file.addEventListener('change',e=>{if(e.target.files[0]) send(e.target.files[0]);});
+
+function renderDims(view){
+  const empty=UI.empty_value||'—', roles=UI.role_labels||{};
+  $('dims').innerHTML=(view.fields||[]).map(f=>{
+    const chips=f.items.length
+      ? f.items.map(i=>`<span class="chip${i.role?' v2':''}">${esc(i.text+(i.role?'·'+(roles[i.role]||i.role):''))}</span>`).join('')
+      : empty;
+    const cap=f.caption?` <span style="color:var(--muted)">· ${esc(f.caption)}</span>`:'';
+    return `<div class="dim"><label>${esc(f.label)}${cap}</label>${chips}</div>`;
+  }).join('');
+}
+
+async function send(f){
+  await ready;
+  stage.classList.remove('show'); spin.classList.add('show');
+  const fd=new FormData(); fd.append('file', f);
+  const t0=performance.now();
+  const res=await fetch('/upload',{method:'POST',body:fd});
+  const d=await res.json();
+  const ms=Math.round(performance.now()-t0);
+  spin.classList.remove('show');
+  currentAssetId=d.asset_id; currentSimilar=d.similar||[];
+  $('upImg').src='/image/'+d.asset_id;
+  renderDims(d.tags||{});
+  $('cases').innerHTML=currentSimilar.map(id=>`<img src="/image/${id}" alt="${esc(UI.app.match_alt)}"/>`).join('')
+    ||esc(UI.app.no_match);
+  $('banner').classList.toggle('show', !!d.degraded);
+  stage.classList.add('show');
+  console.log('round-trip ms=',ms);
+}
+$('exportBtn').addEventListener('click',()=>{
+  if(currentAssetId!=null)
+    window.open('/export/'+currentAssetId+'?similar='+currentSimilar.join(','),'_blank');
+});
+</script>
+</body>
+</html>

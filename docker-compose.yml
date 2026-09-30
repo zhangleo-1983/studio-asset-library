@@ -5,18 +5,18 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: balloon
-      POSTGRES_PASSWORD: balloon
-      POSTGRES_DB: balloon_platform
+      POSTGRES_USER: assetlib
+      POSTGRES_PASSWORD: assetlib
+      POSTGRES_DB: asset_library
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U balloon -d balloon_platform"]
+      test: ["CMD-SHELL", "pg_isready -U assetlib -d asset_library"]
       interval: 5s
       timeout: 3s
       retries: 10
     ports:
-      - "5432:5432"
+      - "${PG_HOST_PORT:-5432}:5432"
 
   api:
     build: .
@@ -24,13 +24,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg2://balloon:balloon@postgres:5432/balloon_platform
-    # api 入口:先建库到 head,再起 uvicorn。种子由运维单独跑 balloon-seed(参数化)。
+      DATABASE_URL: postgresql+psycopg2://assetlib:assetlib@postgres:5432/asset_library
+      INDUSTRY_PACK: ${INDUSTRY_PACK:-template}   # 行业包:packs/ 下的目录名
+    # api 入口:先建库到 head,再起 uvicorn。种子由运维单独跑 assetlib-seed(参数化)。
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8000}:8000"
+      - "${DEMO_HOST_PORT:-8100}:8100"   # demo 服务(需在容器内另起,见 docs/SMOKE.md)
 
   worker:
     build: .
@@ -40,7 +42,8 @@ services:
       api:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql+psycopg2://balloon:balloon@postgres:5432/balloon_platform
+      DATABASE_URL: postgresql+psycopg2://assetlib:assetlib@postgres:5432/asset_library
+      INDUSTRY_PACK: ${INDUSTRY_PACK:-template}
     # worker 入口:同镜像不同入口(本期空转占位,不跑打标)。
     command: ["python", "-m", "app.worker"]
 

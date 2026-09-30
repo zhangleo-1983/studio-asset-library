@@ -19,7 +19,7 @@ BASELINE_VOCAB_COUNT = 3 + 17 + 8  # structure + color + scene
 def test_two_tenant_replay_isolation():
     # 重放同一脚本:示例客户(首次)+ 第二租户
     assert seed_tenant(1, "demo_tenant", "示例客户") is True
-    assert seed_tenant(2, "qqmgc", "气球梦工厂") is True
+    assert seed_tenant(2, "second_tenant", "Second tenant") is True
 
     # 幂等:同租户再跑一次不重复播种
     assert seed_tenant(1, "demo_tenant", "示例客户") is False

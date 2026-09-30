@@ -4,8 +4,8 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-07-05
 
-逐表照搬 docs/data-model.md §3 的 DDL,不增不减不改名。表名/约束名/索引名与文档 1:1,
-对照见 docs/skeleton-checklist.md。建表顺序按外键依赖调整(config_version/vocabulary_version
+逐表照搬 docs/data-model.md §3 的 DDL,不增不减不改名。表名/约束名/索引名与文档 1:1。
+建表顺序按外键依赖调整(config_version/vocabulary_version
 先于引用它们的 task/tag),仅调顺序、不改 DDL 内容。
 
 本迁移额外承担 migration.md §4 步骤 0 中"固化在建库迁移内"的两件事:
@@ -26,8 +26,8 @@ depends_on = None
 CREATE_APP_ROLE = """
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'balloon_app') THEN
-        CREATE ROLE balloon_app NOLOGIN;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_app') THEN
+        CREATE ROLE platform_app NOLOGIN;
     END IF;
 END
 $$;
@@ -39,7 +39,7 @@ CREATE TABLE tenant (
     tenant_id     BIGINT PRIMARY KEY,           -- 0 保留给平台公共库;不用 NULL 承载"无租户"
     slug          TEXT UNIQUE NOT NULL,
     display_name  TEXT NOT NULL,
-    industry      TEXT NOT NULL DEFAULT 'balloon_party',
+    industry      TEXT NOT NULL DEFAULT 'generic',
     status        TEXT NOT NULL DEFAULT 'active',
     created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -51,7 +51,7 @@ CREATE TABLE app_user (
     tenant_id     BIGINT NOT NULL REFERENCES tenant(tenant_id),
     username      TEXT,                          -- Web 端;租户内唯一
     password_hash TEXT,
-    wx_openid     TEXT,                          -- 小程序端【arch 裁决5:账号体系隔断墙】
+    wx_openid     TEXT,                          -- 小程序端【architecture 裁决5:账号体系隔断墙】
     role          TEXT NOT NULL DEFAULT 'operator',  -- operator|reviewer|admin(租户内角色)
     status        TEXT NOT NULL DEFAULT 'active',
     created_at    timestamptz NOT NULL DEFAULT now(),
@@ -115,8 +115,8 @@ CREATE TABLE vocabulary (
     vocab_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     dimension      TEXT NOT NULL,                 -- structure|color|scene
-    concept_key    TEXT NOT NULL,                 -- 稳定概念键(ASCII),如 'column'/'red'/'wedding' —— tag.value 存这个
-    labels         JSONB NOT NULL,                -- {"zh":"立柱"};未来 {"zh":"立柱","en":"column"}。翻译在此层,不在数据层【不变量三】
+    concept_key    TEXT NOT NULL,                 -- 稳定概念键(ASCII),如 'shape_a'/'red'/'scene_x' —— tag.value 存这个
+    labels         JSONB NOT NULL,                -- {"zh":"<词形>"};未来 {"zh":"<词形>","en":"<word>"}。翻译在此层,不在数据层【不变量三】
     color_kind     TEXT,                          -- color 维专用:'simple'|'compound'
     active         BOOLEAN NOT NULL DEFAULT true,
     vocab_version_id BIGINT NOT NULL REFERENCES vocabulary_version(vocab_version_id),
@@ -133,8 +133,8 @@ CREATE TABLE alias_map (
     alias_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     dimension      TEXT NOT NULL,                 -- structure|theme|color|scene
-    alias          TEXT NOT NULL,                 -- 别名/变体词形,如 '气球花盒'
-    concept_key    TEXT NOT NULL,                 -- 【A-2】指向标准 concept_key,如 'flowerbox'(不再是中文标准词形)
+    alias          TEXT NOT NULL,                 -- 别名/变体词形,如某个变体词形
+    concept_key    TEXT NOT NULL,                 -- 【A-2】指向标准 concept_key,如 'shape_c'(不再是中文标准词形)
     source         TEXT NOT NULL DEFAULT 'human', -- human|sync_corrections(回流自动追加)
     created_at     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, dimension, alias)          -- 同维度同别名唯一;冲突/成环由回流写入路径拒绝(旧逻辑保留)
@@ -176,7 +176,7 @@ CREATE TABLE tag (
     task_id        BIGINT REFERENCES task(task_id),             -- 由哪个打标任务产生;human 补标签可空
 
     dimension      TEXT NOT NULL,                 -- 'theme'|'color'|'structure'|'scene'|'color_scheme'
-    -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'column'/'red');
+    -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'red');
     --           theme 与 color_scheme 维为自由文本(模型自由生成,不受词表约束);
     --           【A-6/裁决五】unresolved 标签的 value 例外存"裸原词形"(反查失败,待人工归类)
     value          TEXT NOT NULL,
@@ -315,12 +315,12 @@ CREATE TABLE export_job (
 # ── 【加固2/N10】四张只增表回收 UPDATE/DELETE(升级为 DDL 级)────────
 # 先 GRANT 基础 CRUD 给 app_role,再对只增表 REVOKE,使"只增"成为真实授权状态。
 GRANT_APP_ROLE = """
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO balloon_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO balloon_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO platform_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO platform_app;
 """
 
 REVOKE_APPEND_ONLY = """
-REVOKE UPDATE, DELETE ON event, tag_correction, vocabulary_version, config_version FROM balloon_app;
+REVOKE UPDATE, DELETE ON event, tag_correction, vocabulary_version, config_version FROM platform_app;
 """
 
 # ── migration §4 步骤 0:tenant_id=0 平台保留号,固化在建库迁移内 ───
@@ -328,7 +328,7 @@ REVOKE UPDATE, DELETE ON event, tag_correction, vocabulary_version, config_versi
 # 各自 event)走参数化脚本 app/seed.py,事件一律经 record_event 写入,不在此绕过。
 SEED_PLATFORM_TENANT = """
 INSERT INTO tenant (tenant_id, slug, display_name, industry, status)
-VALUES (0, 'platform', '平台公共库', 'balloon_party', 'active')
+VALUES (0, 'platform', '平台公共库', 'platform', 'active')
 ON CONFLICT (tenant_id) DO NOTHING;
 """
 
@@ -366,4 +366,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     for name in _DROP_ORDER:
         op.execute(f"DROP TABLE IF EXISTS {name} CASCADE;")
-    # balloon_app 角色不随迁移删除(可能被其它库/授权共享);如需清理由运维手动 DROP ROLE。
+    # platform_app 角色不随迁移删除(可能被其它库/授权共享);如需清理由运维手动 DROP ROLE。

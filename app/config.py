@@ -18,10 +18,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ── 行业包 ─────────────────────────────────────────────────
+    # 选用 packs/<id>/。切换整套分类体系/提示词/UI 文案/演示数据集只改这一项。
+    industry_pack: str = Field(default="template", description="行业包 id(packs/ 下的目录名)")
+    packs_dir: str = Field(default="", description="行业包根目录;空 = 仓库内 packs/")
+
     # ── 数据库 ────────────────────────────────────────────────
     # 应用运行时连接(理应用回收了 UPDATE/DELETE 的 app_role,见迁移 REVOKE)
     database_url: str = Field(
-        default="postgresql+psycopg2://localhost:5432/balloon_platform",
+        default="postgresql+psycopg2://localhost:5432/asset_library",
         description="SQLAlchemy 连接串;compose 内指向 postgres 服务",
     )
 
@@ -29,7 +34,7 @@ class Settings(BaseSettings):
     # backend: 'local'(开发/CI,字节落盘)| 'oss'(生产占位)。业务层只见 asset_id【不变量三】。
     storage_backend: str = Field(default="local", description="local|oss")
     local_storage_root: str = Field(
-        default="/tmp/balloon-storage",
+        default="/tmp/assetlib-storage",
         description="local backend 的落盘根目录;key 规则仍是 {tenant}/{asset}/...",
     )
     oss_endpoint: str = Field(default="", description="OSS endpoint,占位")

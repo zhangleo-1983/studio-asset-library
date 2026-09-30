@@ -1,0 +1,32 @@
+{
+  "role_labels": {},
+  "empty_value": "—",
+  "app": {
+    "page_title": "Studio Asset Library · demo",
+    "api_title": "Studio Asset Library · demo",
+    "hero_title": "Studio Asset Library",
+    "hero_subtitle": "(填写:一句话价值主张)",
+    "hero_badge": "(填写:流程简述)",
+    "drop_title": "拖入图片 / 点击选图",
+    "drop_hint": "(填写:AI 会拆出哪些维度)",
+    "spinner": "处理中…",
+    "banner_offline": "演示缓存模式:当前使用预打标结果。",
+    "upload_card_title": "上传的图",
+    "upload_alt": "上传图",
+    "matches_title": "相似案例",
+    "export_button": "导出方案页",
+    "no_match": "暂无匹配",
+    "match_alt": "参考案例",
+    "footer": "(填写:页脚说明)"
+  },
+  "plan": {
+    "page_title": "方案预览",
+    "heading": "参考方案",
+    "subheading": "(填写)",
+    "hero_alt": "上传图",
+    "cases_heading": "相似参考案例",
+    "case_alt": "参考案例",
+    "no_cases": "暂无匹配案例",
+    "footer": "(填写)"
+  }
+}

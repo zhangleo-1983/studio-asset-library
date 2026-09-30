@@ -10,7 +10,7 @@ Create Date: 2026-07-07
   · 受约束维(structure/color/scene)的 model 标签:vocab_version_id 必须非空;
   · 自由文本维(theme/color_scheme)的 model 标签:vocab_version_id 必须为空(禁止伪造锚点);
   · 其余五项溯源(model_id/prompt_version/config_version_id/run_id/input_hash)对全部 model 标签维持强制。
-data-model §3.5 同步修订并标注【裁决八】;裁决记录见 reviews/。
+data-model §3.5 同步修订并标注【裁决八】。
 """
 from alembic import op
 
