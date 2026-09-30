@@ -184,7 +184,7 @@ dc exec -T api python scripts/pack_run.py assets >"$TMP/assets.log" 2>&1 \
   || { redact <"$TMP/assets.log" | tail -8; fatal "生成演示素材失败" "见上方输出"; }
 dc cp api:/app/demo_assets/library "$TMP/lib" >/dev/null 2>&1 || fatal "取出演示素材失败" "docker compose cp 失败"
 ls "$TMP/lib"/*.png >/dev/null 2>&1 || fatal "演示素材为空" "$TMP/lib 下没有 png"
-record ✅ "演示素材已生成($(ls "$TMP/lib"/*.png | wc -l | tr -d ' ') 张程序绘制插画)" ""
+record ✅ "演示素材已生成($(ls "$TMP/lib"/*.png | wc -l | tr -d ' ') 张图库插画 + 1 张断网兜底样本,均为程序绘制)" ""
 
 PICKED=()
 while IFS= read -r line; do PICKED+=("$line"); done < <(ls "$TMP/lib" | grep '\.png$' | python3 scripts/smoke_check.py pick)
