@@ -11,7 +11,7 @@ export INDUSTRY_PACK=<id>        # 或写进 .env;默认 template(空骨架)
 
 ## 随仓库提供的两个包
 
-- **完整示例包**:四维标签体系、提示词、UI 文案、程序绘制的演示素材生成器、本包专属测试。包名与用法见 [packs/README.md](../packs/README.md)。
+- **[`packs/balloon`](../packs/balloon/README.md)(完整示例包)**:四维标签体系、提示词、UI 文案、程序绘制的演示素材生成器、本包专属测试。包名与用法见 [packs/README.md](../packs/README.md)。
 - **`packs/template`**:空骨架:结构齐全但无词表、无演示素材;复制它开始写新行业。字段逐项说明见 [packs/template/FIELDS.md](../packs/template/FIELDS.md)。
 
 ## 目录结构
@@ -68,6 +68,69 @@ packs/<id>/
 - `view[]`:演示页/方案页展示哪些维度、顺序、显示名、是否翻译词形、是否显示 role、标题旁的说明维度。
 - `recall[]`:召回计分权重(维度 + 可选 role + 权重)。
 - `loop_script`:打标闭环演示脚本(`make demo` 运行)。
+
+## 教程:以 `packs/balloon` 为例逐字段看一遍
+
+示例包是气球派对布置图库。下面的片段都取自它的真实文件,可对照 `packs/balloon/` 阅读。
+
+**1. 维度与词表**(`taxonomy.json`)——造型维度受词表约束,词表 3 条、别名 1 条:
+
+```json
+{
+  "key": "structure",
+  "label": "造型",
+  "kind": "constrained",
+  "multi": true,
+  "vocabulary": [
+    {
+      "concept_key": "column",
+      "labels": {
+        "zh": "立柱"
+      }
+    },
+    {
+      "concept_key": "arch",
+      "labels": {
+        "zh": "拱门"
+      }
+    },
+    {
+      "...": "共 3 条"
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "气球花盒",
+      "concept_key": "flowerbox"
+    }
+  ]
+}
+```
+
+- 配色维度(`color`)另带 `"roles": ["primary", "accent"]`(主色/点缀),词表 17 条,`color_kind` 区分单色 `simple` 与复合色 `compound`(如「多巴胺」「珠光粉」)。
+- 场景维度(`scene`)8 条,含兜底项「其他」(`other`)。
+- 主题(`theme`)、配色简称(`color_scheme`)是自由文本维度:模型写什么就存什么,**不受词表约束**。
+
+**2. 模型输出如何变成标签**(`taxonomy.json` 的 `extraction`)——例如模型输出 `{"structure_types": ["立柱","气球花盒"], "color_scheme": {"primary": ["红","金"], "scheme_name": "红金"}, "scene_guess": "婚礼"}`:
+
+| 输出路径 | 落到维度 | 处理 |
+|---|---|---|
+| `structure_types`(列表) | `structure` | "立柱" → 词表命中 `column`;"气球花盒" → 别名命中 `flowerbox`;词表外的词记为「待归类」 |
+| `color_scheme.primary` | `color`(role=`primary`) | "红"→`red`,"金"→`gold` |
+| `scene_guess` | `scene` | "婚礼" → `wedding` |
+| `color_scheme.scheme_name` | `color_scheme`(自由文本) | 原样存"红金" |
+
+**3. 提示词**(`prompt.txt`)——开头 `你是{{SLOT:persona}},…`(角色设定来自 `pack.json` 的 `prompt.slots.persona`);造型/配色词表用 `{{VOCAB:structure}}`、`{{VOCAB:color}}` 注入,场景枚举用 `{{VOCAB:scene| / }}`(自定义分隔符)。版本号在 `pack.json`:`prompt.version = "tagging_v3"`。
+
+**4. UI 文案与演示**(`ui.json`、`pack.json` 的 `demo`)——`ui.json` 的 `app.hero_title` 等是演示页文案;`demo.view` 决定演示页展示「主题 / 场景 / 造型 / 配色」四块;`demo.recall` 决定召回权重(造型 3、主色 2、其余 1);`demo.assets.generator` 指向程序绘制插画的脚本 `demo/gen_demo_assets.py`。
+
+**5. 跑起来**
+
+```bash
+export INDUSTRY_PACK=balloon
+DEMO_MOCK=1 make demo-seed && make demo-web     # 无需密钥的演示
+make smoke                                     # 用你自己的百炼 key 做真实模型冒烟(见 SMOKE.md)
+```
 
 ## 新增一个行业
 

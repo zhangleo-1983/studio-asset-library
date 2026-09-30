@@ -4,7 +4,7 @@
 > 宪法:本仓库根目录 [PRINCIPLES.md](../PRINCIPLES.md)(《平台架构原则 v1.0》全文纳入)。
 > 本文每个设计决策后标注 `【符合:不变量N】` 或 `【隔断墙:授权粗糙】`;与原则冲突处集中列在第 9 节交人工裁决。
 >
-> 定位:小工作室多模态素材库(AI 图像打标 + 检索)。行业相关内容(分类体系、提示词、UI 文案、演示数据集)集中在**行业包**(`packs/<id>/`),核心代码与行业无关;见 [industry-packs.md](./industry-packs.md)。
+> 定位:小工作室多模态素材库(AI 图像打标 + 检索)。**本文的示例以 [`packs/balloon`](../packs/balloon/taxonomy.json) 示例包(气球派对布置图库)为例。**行业相关内容(分类体系、提示词、UI 文案、演示数据集)集中在**行业包**(`packs/<id>/`),核心代码与行业无关;见 [industry-packs.md](./industry-packs.md)。
 > 纪律:**多租户设计、单租户交付**——结构上多租户无特例,功能上不做任何租户自助管理界面。
 
 ---
@@ -46,7 +46,7 @@
 **选型:PostgreSQL 15+。** 详细表结构见 [data-model.md](./data-model.md)。
 
 - **JSONB** 承载"按 task_type 各自定义的输出 schema"与溯源明细,既结构化又不为每个未来任务类型改表。【符合:不变量四 — 任务表结构对类型开放】
-- 标签维度筛选("配色=X 且 造型=Y")靠**规范化标签表 + GIN 索引**,不需要向量库。【符合:隔断墙 — 检索用标签过滤,不做向量检索】
+- 标签维度筛选("红金 且 立柱")靠**规范化标签表 + GIN 索引**,不需要向量库。【符合:隔断墙 — 检索用标签过滤,不做向量检索】
 - 行级 `tenant_id` 列 + 应用层强制过滤,后续可平滑升级到 Row-Level Security(RLS)。【符合:不变量一】
 - 单实例起步,读写量在数万张图规模下远未触及 PG 上限。
 
@@ -136,12 +136,12 @@ docker-compose:
 - **复核队列:** 打标结果 `confidence < 阈值` 或 `needs_review = true` 的进入复核队列(本质是一个按条件筛的视图/查询,不是新子系统)。阈值是租户级配置项,变更落"配置变更"事件。【符合:留位置不建房间 — 队列 = 查询,不建独立引擎】
 - **人工修正(三种操作)【C1】:** 审核员在 Web 端对标签有三类操作,**任何一种都不覆盖/不销毁原始值**:
   - **改值(update):** `tag_correction` 追加一行 `kind='update'`,`tag.value` 更新为新概念键,`old_value` 保留;
-  - **删错标(remove):** 模型幻觉出的标签(如画面里根本不存在的某个造型),`tag.status` 置 `removed`,`tag_correction` 追加 `kind='remove'`(`new_value` 空)。检索一律 `status='active'`,该标签退出检索但原始行与溯源永久保留;
+  - **删错标(remove):** 模型幻觉出的标签(如根本不存在的"拱门"),`tag.status` 置 `removed`,`tag_correction` 追加 `kind='remove'`(`new_value` 空)。检索一律 `status='active'`,该标签退出检索但原始行与溯源永久保留;
   - **补漏标(add):** 模型漏掉的造型,**新增一条 `tag` 行**(`source='human'`,模型溯源列为空),**不走修正链**,只落"人工修正"事件。
   - 三种操作均落 `event`(event_type='correction')。表结构与 CHECK 见 [data-model.md](./data-model.md) §3.5/§3.6。【符合:不变量二 — 人工修正不覆盖原始值】
 - **【N1/裁决五】重打收敛(supersede):** 词表升级后的重打批次(见查询②),新旧标签先并存供验收;**人工验收通过后**,系统对同 `(asset_id, dimension)` 且词表版本早于本批的 `active` 标签**批量置 `superseded`**(落 `tag_correction` kind='supersede', source='model' + event)。检索只查 `active`,旧标签退出但原行永久保留——重打不再"双计/旧错值继续命中"。
 - **【A-6/裁决五】归一化反查失败落库(unresolved):** 模型词形在 `alias_map` 与当期 `vocabulary.labels.zh` 都查不到时,**照常写 `tag`**:`value` 存**裸原词形**(不加 `raw:` 前缀——concept_key 强制 ASCII,中文词形天然不冒充概念键,隔离靠状态列而非字符串魔法)、`status='unresolved'`、`needs_review=true`,进复核队列。**闭环强制:** 人工归类(补 alias/扩词表)后走修正链转正——`kind='update'`(old=原词形, new=concept_key)+ status 迁回 `active`;判为垃圾则 `kind='remove'`。unresolved 不允许无限期滞留,复核队列视图默认包含它。(否决"整条拒收"方案:会丢同图其他维度可用标签,与"多造型都要列出"相悖。)
-- **【Q1/裁决二】颜色检索默认按主色:** `dimension='color'` 的标签带 `role`('primary'|'accent',**必选**)。消费者挑方案按主色调判断,故颜色筛选**默认只命中 `role='primary'`**(如搜"X色+Y色" = 主色同时含这两色);另提供"含点缀色"开关,放宽到全部 color 标签。`scheme_name`(整套配色的简称)落**独立维度 `color_scheme`**、自由文本,不混入 color 维,避免污染单色统计与筛选。
+- **【Q1/裁决二】颜色检索默认按主色:** `dimension='color'` 的标签带 `role`('primary'|'accent',**必选**)。消费者挑气球方案按主色调判断,故颜色筛选**默认只命中 `role='primary'`**(搜"红金" = 主色含 red 与 gold);另提供"含点缀色"开关,放宽到全部 color 标签。`scheme_name`(整套配色命名,如"红金")落**独立维度 `color_scheme`**、自由文本,不混入 color 维,避免污染单色统计与筛选。
 
 > **【队列=PG】** 任务/复核队列均走 PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED`,**不引入 Redis**(裁决:单机规模用不上,少一个依赖符合轻纪律;将来见真实瓶颈再议)。
 
@@ -190,7 +190,7 @@ docker-compose:
 
 面向做方案的一线同事,四块功能:
 
-1. **标签筛选** — 按 主题/配色/造型/场景 多维交叉筛选(如"配色=X 且 造型=Y")。
+1. **标签筛选** — 按 主题/配色/造型/场景 多维交叉筛选(如"配色=红金 且 造型=立柱")。
 2. **缩略图墙** — OSS 实时缩略图,瀑布流浏览。
 3. **选图篮** — 勾选候选图入篮(选图行为落事件)。
 4. **转发客户** — 导出选中图/生成分享,转发给客户(发送行为落事件)。

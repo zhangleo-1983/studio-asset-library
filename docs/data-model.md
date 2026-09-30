@@ -1,10 +1,12 @@
 # studio-asset-library 数据模型草案
 
+> 本文的词表/标签示例以 [`packs/balloon`](../packs/balloon/taxonomy.json) 示例包为例(concept_key 与词形均取自该包);换行业包时表结构不变。
+
 > 状态:**v3.1(design-freeze-v3 冻结后首次修订)**。修订项:【裁决八】`tag_provenance_by_source`
 > 改按维度双向(自由文本维 theme/color_scheme 的 model 标签 vocab_version_id 必为空)——见 §3.5 /
 > §5 与 alembic `0003`。宪法:[PRINCIPLES.md](../PRINCIPLES.md)。
 > 本稿在 v2 基础上按《评审意见 R02》N1–N12 与《裁决记录 R02》裁决四(A-3 冻结)、裁决五(A-6+N1 合并:status 四态 + 反查失败落库)返修;R02 新增/变更处标注 N 编号(如【N1】【N4】),沿用编号(如【C1】【A-3】)保留。
-> **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `shape_a`/`red`/`scene_x`),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名**已由裁决四批准并冻结**,见 [migration.md](./migration.md) §1.2【A-3 定稿】。
+> **核心口径(裁决一 · 方案 A):** 受词表约束的维度(structure/color/scene),`tag.value` 存 **concept_key**(如 `column`/`red`/`wedding`,以 packs/balloon 为例),展示词形经 `vocabulary` 翻译取得;theme 维度保持自由文本。concept_key 命名**已由裁决四批准并冻结**,见 [migration.md](./migration.md) §1.2【A-3 定稿】。
 > DDL 用 PostgreSQL 方言书写,表达结构意图,非最终迁移脚本。命名 snake_case,时间戳一律 `timestamptz`(UTC)。
 
 ---
@@ -159,8 +161,8 @@ CREATE TABLE vocabulary (
     vocab_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     dimension      TEXT NOT NULL,                 -- structure|color|scene
-    concept_key    TEXT NOT NULL,                 -- 稳定概念键(ASCII),如 'shape_a'/'red'/'scene_x' —— tag.value 存这个
-    labels         JSONB NOT NULL,                -- {"zh":"<词形>"};未来 {"zh":"<词形>","en":"<word>"}。翻译在此层,不在数据层【不变量三】
+    concept_key    TEXT NOT NULL,                 -- 稳定概念键(ASCII),如 'column'/'red'/'wedding'(以 packs/balloon 为例)—— tag.value 存这个
+    labels         JSONB NOT NULL,                -- {"zh":"立柱"};未来 {"zh":"立柱","en":"column"}。翻译在此层,不在数据层【不变量三】
     color_kind     TEXT,                          -- color 维专用:'simple'|'compound'
     active         BOOLEAN NOT NULL DEFAULT true,
     vocab_version_id BIGINT NOT NULL REFERENCES vocabulary_version(vocab_version_id),
@@ -177,14 +179,14 @@ CREATE TABLE alias_map (
     tenant_id      BIGINT NOT NULL REFERENCES tenant(tenant_id),
     dimension      TEXT NOT NULL,                 -- structure|theme|color|scene
     alias          TEXT NOT NULL,                 -- 别名/变体词形,如某个变体词形
-    concept_key    TEXT NOT NULL,                 -- 【A-2】指向标准 concept_key,如 'shape_c'(不再是中文标准词形)
+    concept_key    TEXT NOT NULL,                 -- 【A-2】指向标准 concept_key,如 'flowerbox'(不再是中文标准词形)
     source         TEXT NOT NULL DEFAULT 'human', -- human|sync_corrections(回流自动追加)
     created_at     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, dimension, alias)          -- 同维度同别名唯一;冲突/成环由回流写入路径拒绝(旧逻辑保留)
 );
 ```
 
-> **【A-2】** `alias_map` 从"别名→中文标准词形"改为"别名词形→concept_key"。例:`<变体词> → <concept_key>`(不再是 `<变体词> → <标准词形>`)。migration §1.3 迁移动作同步改。
+> **【A-2】** `alias_map` 从"别名→中文标准词形"改为"别名词形→concept_key"。例:`气球花盒 → flowerbox`(不再是 `气球花盒 → 花盒`)。migration §1.3 迁移动作同步改。
 > **【A-4】归一化解析链(落库口径):** 模型按 prompt 注入的 zh 词表输出**中文词形** → 先查 `alias_map`(别名→concept_key),未命中再查当期 `vocabulary.labels.zh`(词形→concept_key)→ 命中则 `tag.value` 落 concept_key;**模型原始输出完整保留在 `task.output`**。两处都查不到走【A-6/裁决五】失败路径(status='unresolved',见 §3.5 与 architecture §3.3)。
 > **【N12】alias_map 无版本维、concept_key 需存在于当期词表版本:** 概念下线后,老 alias 可能指向已不在当期版本的 concept_key。故**归一化解析**与**回流写入**各补一条校验——`concept_key` 必须存在于当期 `vocabulary_version` 且 `active=true`,否则:解析侧按【A-6】失败路径(unresolved)处理;回流写入侧拒绝并交人工裁决。
 
@@ -198,7 +200,7 @@ CREATE TABLE tag (
     task_id        BIGINT REFERENCES task(task_id),             -- 由哪个打标任务产生;human 补标签可空
 
     dimension      TEXT NOT NULL,                 -- 'theme'|'color'|'structure'|'scene'|'color_scheme'
-    -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'shape_a'/'red');
+    -- 【C2/A-1】受词表约束维度(structure/color/scene)存 concept_key(如 'column'/'red');
     --           theme 与 color_scheme 维为自由文本(模型自由生成,不受词表约束);
     --           【A-6/裁决五】unresolved 标签的 value 例外存"裸原词形"(反查失败,待人工归类)
     value          TEXT NOT NULL,
@@ -257,12 +259,12 @@ CREATE INDEX tag_vocabver_idx ON tag (tenant_id, vocab_version_id);  -- 词表�
 CREATE INDEX tag_review_idx   ON tag (tenant_id, dimension) WHERE status='unresolved';  -- 复核队列默认含 unresolved
 ```
 
-> **【C2/A-1】** `value` 存 concept_key(受约束维度)或自由文本(自由文本维,如 theme/color_scheme)。展示词形一律经 `vocabulary.labels` 翻译;改词形("<旧词形>"→"<新词形>")= 纯词表编辑,零标签重写、零重打。
+> **【C2/A-1】** `value` 存 concept_key(受约束维度)或自由文本(自由文本维,如 theme/color_scheme)。展示词形一律经 `vocabulary.labels` 翻译;改词形("立柱"→"圆柱")= 纯词表编辑,零标签重写、零重打。
 > **【N1/裁决五】status 四态语义:** `active` 参与检索;`removed` 人工删的错标;`superseded` 被重打新版取代的旧标签;`unresolved` 反查失败待人工归类。**检索一律只查 `active`;其余三态原行与溯源永久保留**,是不变量二的完整形态。
 > **`superseded` 触发(收敛机制,N1 核心):** 重打批次**人工验收通过后**,系统对同 `(asset_id, dimension)` 且 `vocab_version` 早于本批的 `active` 标签**批量置 `superseded`**,落 `tag_correction`(`kind='supersede'`, `source='model'`)+ event。此前旧标签维持 `active`、与新标签并存(供验收对比);验收通过才收敛。这样重打既不双计(同值)也不让旧错值继续命中(异值)。
 > **【A-6/裁决五】unresolved(反查失败落库):** 模型词形在 alias/词表都查不到 → `value` 存**裸原词形**(无 `raw:` 前缀:concept_key 强制 ASCII,中文词形天然不冒充概念键)、`status='unresolved'`、`needs_review=true`,进复核队列。**闭环强制:** 人工补 alias/扩词表后走修正链转正——`kind='update'`(old=原词形, new=concept_key)+ status 迁回 `active`;判为垃圾则 `kind='remove'`。unresolved 不允许滞留,复核队列视图默认包含它。
 > **【C1】删错标 / 补漏标:** 删错标 = `status='removed'`(不 DELETE);补漏标 = 新增 `source='human'` 行、模型溯源列可空(CHECK 放行),不走修正链;human 补受约束维标签仍记 `vocab_version_id`【N11】(缩小查询②"待归类"桶)。
-> **【裁决二】role + color_scheme:** color 维带 `role`(必选);`scheme_name`(整套配色简称)落 `dimension='color_scheme'` 自由文本,与 color 单色维互补、不混算。
+> **【裁决二】role + color_scheme:** color 维带 `role`(必选);`scheme_name`(如"红金")落 `dimension='color_scheme'` 自由文本,与 color 单色维互补、不混算。
 
 ### 3.6 tag_correction — 修正链(只增,update/remove/restore)【C1 / 不变量二、五】
 
@@ -412,19 +414,19 @@ CREATE TABLE active_config (
 
 ## 4. 三个典型查询走查(按方案 A · concept_key 改写)
 
-> 自查口径:以下查询与 [migration.md](./migration.md) §1.2【A-3】的 concept_key 提案一致(`shape_a`/`red`/`gold`/`structure`/`color`)。展示层一律 **API 只返回 `asset_id`**,词形与图 URL 分别经 `vocabulary` 翻译、`StorageBackend` 签发,**不把 concept_key 或 storage_key 吐给前端**【A-5/Q8】。
+> 自查口径:以下查询与 [migration.md](./migration.md) §1.2【A-3】的 concept_key 提案一致(`column`/`red`/`gold`/`structure`/`color`)。展示层一律 **API 只返回 `asset_id`**,词形与图 URL 分别经 `vocabulary` 翻译、`StorageBackend` 签发,**不把 concept_key 或 storage_key 吐给前端**【A-5/Q8】。
 
-### 查询①:筛选「配色=X色+Y色 且 造型=Z」的图 【不变量一、三 / A-5 / 裁决二 / Q8】
+### 查询①:筛选「配色=红金 且 造型=立柱」的图 【不变量一、三 / A-5 / 裁决二 / Q8】
 
-「X色+Y色」= 主色含两色的 concept_key。默认按主色(`role='primary'`)。
+「红金」= 主色含 red 与 gold。默认按主色(`role='primary'`)。
 
 ```sql
--- 参数::tenant;造型 concept_key='shape_a';主色含 'red' 与 'gold'
+-- 参数::tenant;造型 concept_key='column';主色含 'red' 与 'gold'
 SELECT a.asset_id                                   -- 【Q8】只出 asset_id,不出 storage_key
 FROM asset a
 WHERE a.tenant_id = :tenant AND a.deleted_at IS NULL
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
-              AND t.status='active' AND t.dimension='structure' AND t.value='shape_a')
+              AND t.status='active' AND t.dimension='structure' AND t.value='column')
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
               AND t.status='active' AND t.dimension='color' AND t.role='primary' AND t.value='red')
   AND EXISTS (SELECT 1 FROM tag t WHERE t.tenant_id=a.tenant_id AND t.asset_id=a.asset_id
@@ -504,7 +506,7 @@ GROUP BY 1 ORDER BY 1;
 
 | 原裁决点 | 裁决结果(已执行) |
 |---|---|
-| 配色落库粒度 | 【裁决二】各单色作为 color 维 concept_key 存(带 role);`scheme_name`(整套配色简称)落**独立维度 `color_scheme`** 自由文本,不混入 color,避免污染单色统计与筛选 |
+| 「红金」落库粒度 | 【裁决二】红/金作为 color 维 concept_key 存(带 role);`scheme_name`"红金"落**独立维度 `color_scheme`** 自由文本,不混入 color,避免污染单色统计与筛选 |
 | 溯源 NOT NULL 时机 | 【C3】删 migrated 放宽,改 CHECK 按 source 分级,第一天强制 |
 | RLS vs 应用层 | 【加固3】留位不启用 + 补集成测试:**无租户上下文的查询路径必须失败**(应用层过滤方案的唯一安全网),见 [migration.md](./migration.md) §4 / architecture §3.1 |
 | 多值维度多行 vs 数组 | 同意多行(GIN 单值索引 + 修正链挂载 + status/role 逐值可控),理由成立 |
