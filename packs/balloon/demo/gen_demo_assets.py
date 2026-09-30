@@ -5,7 +5,7 @@
   fallback/sample.png + fallback/*.json         —— 断网兜底样本
 
 **这是自绘插画,不是真实作品照。** 正式演示前请把 library/ 换成真实合规图
-(即梦/MJ 生成 / 自有版权 / 客户自供),重跑本脚本更新 manifest。插画仅供机器联调与排练,
+(即梦/MJ 生成 / 自有版权 / 用户自有素材),重跑本脚本更新 manifest。插画仅供机器联调与排练,
 方案页脚注已内置"正式使用跑你自己的图"声明,永不冒充真实案例。
 """
 from __future__ import annotations
